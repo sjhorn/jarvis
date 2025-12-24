@@ -190,8 +190,10 @@ void main() {
   group('WhisperProcess Integration Tests', () {
     late String? whisperPath;
     late String? modelPath;
+    late Map<String, String> expectedTranscriptions;
+    late String testWavsDir;
 
-    setUpAll(() {
+    setUpAll(() async {
       // Check for whisper-cli in common locations
       final possiblePaths = [
         '/Users/shorn/dev/c/whisper.cpp/build/bin/whisper-cli',
@@ -218,24 +220,64 @@ void main() {
           break;
         }
       }
+
+      // Load expected transcriptions from trans.txt
+      testWavsDir = 'test/test_wavs';
+      expectedTranscriptions = {};
+
+      final transFile = File('$testWavsDir/trans.txt');
+      if (await transFile.exists()) {
+        final lines = await transFile.readAsLines();
+        for (final line in lines) {
+          if (line.trim().isEmpty) continue;
+          // Format: "filename TRANSCRIPTION TEXT"
+          final spaceIndex = line.indexOf(' ');
+          if (spaceIndex > 0) {
+            final filename = line.substring(0, spaceIndex);
+            final transcription = line.substring(spaceIndex + 1);
+            expectedTranscriptions[filename] = transcription;
+          }
+        }
+      }
     });
 
+    /// Normalizes text for comparison by:
+    /// - Lowercasing
+    /// - Removing punctuation
+    /// - Collapsing whitespace
+    /// - Handling common spelling variations (British vs American)
+    String normalizeText(String text) {
+      var normalized = text.toLowerCase();
+      // Remove punctuation (periods, commas, quotes, etc.)
+      normalized = normalized.replaceAll(RegExp(r'''[.,!?;:"'\-]'''), '');
+      // Collapse whitespace
+      normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
+      // Handle common spelling variations
+      normalized = normalized.replaceAll('dishonored', 'dishonoured');
+      normalized = normalized.replaceAll('forever', 'for ever');
+      return normalized.trim();
+    }
+
     test(
-      'should transcribe test audio file',
+      'should transcribe 0.wav correctly',
       () async {
         if (whisperPath == null || modelPath == null) {
           markTestSkipped('whisper-cli or model not available');
           return;
         }
 
-        // Check if test audio exists
-        final testAudioPath = '/Users/shorn/dev/dart/jarvis/test.wav';
-        if (!File(testAudioPath).existsSync()) {
-          markTestSkipped('Test audio file not available');
+        final audioFile = '$testWavsDir/0.wav';
+        if (!File(audioFile).existsSync()) {
+          markTestSkipped('Test audio file 0.wav not available');
           return;
         }
 
-        // Arrange
+        final expected = expectedTranscriptions['0.wav'];
+        if (expected == null) {
+          markTestSkipped('Expected transcription for 0.wav not found');
+          return;
+        }
+
         final whisper = WhisperProcess(
           modelPath: modelPath!,
           executablePath: whisperPath!,
@@ -243,12 +285,92 @@ void main() {
         await whisper.initialize();
 
         try {
-          // Act
-          final result = await whisper.transcribeFile(testAudioPath);
+          final result = await whisper.transcribeFile(audioFile);
+          expect(
+            normalizeText(result),
+            equals(normalizeText(expected)),
+            reason: 'Transcription should match expected text',
+          );
+        } finally {
+          await whisper.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
 
-          // Assert
-          expect(result, isA<String>());
-          // We can't predict exact output, but it should not be null
+    test(
+      'should transcribe 1.wav correctly',
+      () async {
+        if (whisperPath == null || modelPath == null) {
+          markTestSkipped('whisper-cli or model not available');
+          return;
+        }
+
+        final audioFile = '$testWavsDir/1.wav';
+        if (!File(audioFile).existsSync()) {
+          markTestSkipped('Test audio file 1.wav not available');
+          return;
+        }
+
+        final expected = expectedTranscriptions['1.wav'];
+        if (expected == null) {
+          markTestSkipped('Expected transcription for 1.wav not found');
+          return;
+        }
+
+        final whisper = WhisperProcess(
+          modelPath: modelPath!,
+          executablePath: whisperPath!,
+        );
+        await whisper.initialize();
+
+        try {
+          final result = await whisper.transcribeFile(audioFile);
+          expect(
+            normalizeText(result),
+            equals(normalizeText(expected)),
+            reason: 'Transcription should match expected text',
+          );
+        } finally {
+          await whisper.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'should transcribe 8k.wav correctly',
+      () async {
+        if (whisperPath == null || modelPath == null) {
+          markTestSkipped('whisper-cli or model not available');
+          return;
+        }
+
+        final audioFile = '$testWavsDir/8k.wav';
+        if (!File(audioFile).existsSync()) {
+          markTestSkipped('Test audio file 8k.wav not available');
+          return;
+        }
+
+        final expected = expectedTranscriptions['8k.wav'];
+        if (expected == null) {
+          markTestSkipped('Expected transcription for 8k.wav not found');
+          return;
+        }
+
+        final whisper = WhisperProcess(
+          modelPath: modelPath!,
+          executablePath: whisperPath!,
+        );
+        await whisper.initialize();
+
+        try {
+          final result = await whisper.transcribeFile(audioFile);
+          expect(
+            normalizeText(result),
+            equals(normalizeText(expected)),
+            reason: 'Transcription should match expected text',
+          );
         } finally {
           await whisper.dispose();
         }
