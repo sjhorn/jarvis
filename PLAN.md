@@ -75,7 +75,7 @@ abstract class ProcessPipe {
 **Purpose**: Wrap whisper.cpp for speech-to-text via process pipe.
 
 **Details**:
-whisper.cpp lives in /Users/shorn/dev.c/whisper.cpp and has its cli built in /Users/shorn/dev.c/whisper.cpp/build/bin/whisper-cli
+whisper.cpp lives in /Users/shorn/dev/c/whisper.cpp and has its cli built in /Users/shorn/dev/c/whisper.cpp/build/bin/whisper-cli
 
 
 **Files**:
