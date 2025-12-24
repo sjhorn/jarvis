@@ -18,4 +18,6 @@ coverage/
 build/
 doc/api/
 
-models/tts
+# Large model files and native libraries
+models/
+native/
