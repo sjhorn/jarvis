@@ -17,3 +17,5 @@ coverage/
 # Build artifacts
 build/
 doc/api/
+
+models/tts
