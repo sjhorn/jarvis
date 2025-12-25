@@ -265,21 +265,19 @@ void main() {
           return;
         }
 
+        // In persistent mode, maxTokens is set at construction time
         final llama = LlamaProcess(
           modelRepo: modelRepo,
           executablePath: llamaPath!,
+          maxTokens: 15, // Very few tokens
         );
         await llama.initialize();
 
         try {
-          // Request very few tokens
-          final result = await llama.generate(
-            'Count from 1 to 100',
-            maxTokens: 10,
-          );
+          final result = await llama.generate('Count from 1 to 100');
 
           expect(result, isA<String>());
-          // With only 10 tokens, it shouldn't complete the full count
+          // With only 15 tokens, it shouldn't complete the full count
           expect(result.contains('100'), isFalse);
         } finally {
           await llama.dispose();

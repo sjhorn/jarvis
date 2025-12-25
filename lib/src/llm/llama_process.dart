@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -39,28 +40,43 @@ class ChatMessage {
       ChatMessage(role: 'system', content: content);
 }
 
-/// Wrapper for llama.cpp LLM text generation via process.
+/// Wrapper for llama.cpp LLM text generation via persistent interactive process.
+///
+/// This class keeps llama-cli running in conversation mode, communicating
+/// via stdin/stdout pipes. This avoids the model reload overhead on each request.
 class LlamaProcess {
   final String modelRepo;
   final String executablePath;
   final String? systemPrompt;
   final Duration timeout;
+  final int maxTokens;
 
+  Process? _process;
+  StreamSubscription<String>? _stdoutSubscription;
+  StreamSubscription<String>? _stderrSubscription;
+  final _outputBuffer = StringBuffer();
+  Completer<String>? _responseCompleter;
   bool _initialized = false;
   bool _disposed = false;
+  bool _ready = false;
 
   LlamaProcess({
     required this.modelRepo,
     required this.executablePath,
     this.systemPrompt,
     this.timeout = const Duration(minutes: 2),
+    this.maxTokens = 256,
   });
 
-  /// Initializes the llama process by validating the executable exists.
+  /// Whether the process is initialized and ready.
+  bool get isReady => _initialized && _ready && !_disposed;
+
+  /// Initializes the llama process by starting it in conversation mode.
   Future<void> initialize() async {
     if (_disposed) {
       throw LlamaException('LlamaProcess has been disposed');
     }
+    if (_initialized) return;
 
     // Check executable exists
     final executableFile = File(executablePath);
@@ -68,71 +84,15 @@ class LlamaProcess {
       throw LlamaException('Llama executable not found at: $executablePath');
     }
 
-    _initialized = true;
-  }
+    _log.info('Starting llama-cli in conversation mode...');
 
-  /// Generates a response to a prompt.
-  Future<String> generate(String prompt, {int maxTokens = 256}) async {
-    if (prompt.isEmpty) {
-      throw LlamaException('Prompt is empty');
-    }
-    if (_disposed) {
-      throw LlamaException('LlamaProcess has been disposed');
-    }
-    if (!_initialized) {
-      throw LlamaException('LlamaProcess not initialized');
-    }
-
-    return _runLlama(prompt, maxTokens: maxTokens);
-  }
-
-  /// Generates a response in a chat context with history.
-  Future<String> chat(
-    String userMessage,
-    List<ChatMessage> history, {
-    int maxTokens = 256,
-  }) async {
-    if (userMessage.isEmpty) {
-      throw LlamaException('User message is empty');
-    }
-    if (_disposed) {
-      throw LlamaException('LlamaProcess has been disposed');
-    }
-    if (!_initialized) {
-      throw LlamaException('LlamaProcess not initialized');
-    }
-
-    // The chat template is handled by llama-cli with -cnv flag
-    // We pass the current message as the prompt and history via conversation
-    // For simplicity, we'll use single-turn with formatted context
-    return _runLlama(userMessage, history: history, maxTokens: maxTokens);
-  }
-
-  /// Clears the conversation context.
-  void clearContext() {
-    // For single-turn mode, there's no persistent context to clear
-    // This is a no-op but kept for interface compatibility
-  }
-
-  /// Disposes of resources.
-  Future<void> dispose() async {
-    _disposed = true;
-    _initialized = false;
-  }
-
-  /// Runs llama-cli with the given prompt.
-  Future<String> _runLlama(
-    String prompt, {
-    List<ChatMessage>? history,
-    required int maxTokens,
-  }) async {
     try {
       final args = <String>[
         '-hf',
         modelRepo,
         '-n',
         maxTokens.toString(),
-        '--single-turn',
+        '--conversation',
         '--no-show-timings',
       ];
 
@@ -141,125 +101,279 @@ class LlamaProcess {
         args.addAll(['-sys', systemPrompt!]);
       }
 
-      // Build the prompt with history context
-      String fullPrompt;
-      if (history != null && history.isNotEmpty) {
-        fullPrompt = _formatHistoryAsPrompt(history, prompt);
-      } else {
-        fullPrompt = prompt;
-      }
-      args.addAll(['-p', fullPrompt]);
+      _log.fine('Starting process: $executablePath ${args.join(' ')}');
 
-      _log.fine('Running llama-cli with prompt: $fullPrompt');
-
-      final result = await Process.run(
+      _process = await Process.start(
         executablePath,
         args,
-        stderrEncoding: const SystemEncoding(),
-        stdoutEncoding: const SystemEncoding(),
-      ).timeout(timeout);
+        mode: ProcessStartMode.normal,
+      );
 
-      _log.finest('llama-cli stdout:\n${result.stdout}');
-      _log.finest('llama-cli stderr:\n${result.stderr}');
+      // Set up stdout listener
+      _stdoutSubscription = _process!.stdout
+          .transform(utf8.decoder)
+          .listen(_onStdout);
 
-      if (result.exitCode != 0) {
-        throw LlamaException(
-          'Llama process failed with exit code ${result.exitCode}: ${result.stderr}',
-        );
+      // Set up stderr listener (for debugging)
+      _stderrSubscription = _process!.stderr
+          .transform(utf8.decoder)
+          .listen(_onStderr);
+
+      // Wait for the initial prompt (">")
+      _log.fine('Waiting for initial prompt...');
+      await _waitForPrompt().timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          throw LlamaException('Timeout waiting for llama-cli to start');
+        },
+      );
+
+      _initialized = true;
+      _ready = true;
+      _log.info('Llama process ready');
+    } catch (e) {
+      await _cleanup();
+      throw LlamaException('Failed to start llama process', e);
+    }
+  }
+
+  /// Handles stdout data from the process.
+  void _onStdout(String data) {
+    _log.finest('stdout: $data');
+    _outputBuffer.write(data);
+
+    // Check if we've received a complete response (ends with "> " prompt)
+    final content = _outputBuffer.toString();
+    if (content.contains('\n> ') || content.endsWith('\n> ')) {
+      _ready = true;
+      if (_responseCompleter != null && !_responseCompleter!.isCompleted) {
+        _responseCompleter!.complete(content);
       }
+    }
+  }
 
-      final output = result.stdout as String;
-      final response = _parseOutput(output);
-      _log.fine('Parsed response: $response');
+  /// Handles stderr data from the process.
+  void _onStderr(String data) {
+    _log.finest('stderr: $data');
+  }
+
+  /// Waits for the initial "> " prompt indicating the model is ready.
+  Future<void> _waitForPrompt() async {
+    final completer = Completer<void>();
+
+    void checkReady() {
+      final content = _outputBuffer.toString();
+      if (content.contains('\n> ') || content.endsWith('> ')) {
+        if (!completer.isCompleted) {
+          _outputBuffer.clear();
+          completer.complete();
+        }
+      }
+    }
+
+    // Check periodically until ready
+    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (completer.isCompleted) {
+        timer.cancel();
+        return;
+      }
+      checkReady();
+    });
+
+    await completer.future;
+  }
+
+  /// Generates a response to a prompt.
+  ///
+  /// Note: [maxTokens] parameter is accepted for API compatibility but
+  /// is ignored in persistent mode (token limit is set at initialization).
+  Future<String> generate(String prompt, {int? maxTokens}) async {
+    return chat(prompt, []);
+  }
+
+  /// Generates a response in a chat context.
+  ///
+  /// If [history] is provided, it will be formatted as context for the message.
+  /// The persistent process also maintains its own conversation history.
+  /// The [maxTokens] parameter is ignored in persistent mode (set at init).
+  Future<String> chat(
+    String userMessage,
+    List<ChatMessage> history, {
+    int? maxTokens,
+  }) async {
+    if (userMessage.isEmpty) {
+      throw LlamaException('User message is empty');
+    }
+    if (_disposed) {
+      throw LlamaException('LlamaProcess has been disposed');
+    }
+    if (!_initialized || _process == null) {
+      throw LlamaException('LlamaProcess not initialized');
+    }
+    if (!_ready) {
+      throw LlamaException('LlamaProcess not ready for input');
+    }
+
+    // Format message with history context if provided
+    String messageToSend;
+    if (history.isNotEmpty) {
+      // For history context, embed it naturally in the question
+      // Extract key facts from history for context
+      final contextParts = <String>[];
+      for (final msg in history) {
+        if (msg.role == 'user') {
+          contextParts.add('I said: "${msg.content}"');
+        } else if (msg.role == 'assistant') {
+          contextParts.add('You replied: "${msg.content}"');
+        }
+      }
+      final contextStr = contextParts.join(' Then ');
+      messageToSend = 'Earlier in our conversation: $contextStr. Now, $userMessage';
+    } else {
+      messageToSend = userMessage;
+    }
+
+    _log.fine('Sending message: $messageToSend');
+
+    try {
+      // Clear buffer and set up response completer
+      _outputBuffer.clear();
+      _responseCompleter = Completer<String>();
+      _ready = false;
+
+      // Send the message
+      _process!.stdin.writeln(messageToSend);
+      await _process!.stdin.flush();
+
+      // Wait for response with timeout
+      final rawOutput = await _responseCompleter!.future.timeout(
+        timeout,
+        onTimeout: () {
+          throw LlamaException('Response timeout after $timeout');
+        },
+      );
+
+      // Parse the response
+      final response = _parseResponse(rawOutput, userMessage);
+      _log.fine('Response: $response');
+
       return response;
-    } on TimeoutException {
-      throw LlamaException('Llama generation timed out after $timeout');
-    } on ProcessException catch (e) {
-      throw LlamaException('Failed to run llama process', e);
+    } catch (e) {
+      _ready = true; // Reset ready state
+      if (e is LlamaException) rethrow;
+      throw LlamaException('Failed to get response', e);
     }
   }
 
-  /// Formats chat history as a prompt string for context.
-  String _formatHistoryAsPrompt(
-    List<ChatMessage> history,
-    String currentMessage,
-  ) {
-    // For gemma model, the history context helps the model understand
-    // We'll pass just the current message and let the model's chat template work
-    // But include key context from history in the prompt
-    final buffer = StringBuffer();
-
-    for (final msg in history) {
-      if (msg.role == 'user') {
-        buffer.writeln('User: ${msg.content}');
-      } else if (msg.role == 'assistant') {
-        buffer.writeln('Assistant: ${msg.content}');
-      }
-    }
-    buffer.writeln('User: $currentMessage');
-
-    return buffer.toString();
-  }
-
-  /// Parses llama-cli output to extract the response.
+  /// Parses the response from llama-cli output.
   ///
-  /// The llama-cli output format is:
+  /// The format is:
   /// ```
-  /// [banner/metadata...]
-  /// > [user prompt]
+  /// [echoed user input]
   ///
-  /// | [response text]
-  /// Exiting...
+  /// | [response line 1]
+  /// [response line 2...]
+  ///
+  /// >
   /// ```
-  String _parseOutput(String output) {
+  String _parseResponse(String output, String userMessage) {
     final lines = output.split('\n');
     final responseLines = <String>[];
-    var foundPromptMarker = false;
+    var inResponse = false;
 
     for (final line in lines) {
-      // Look for the prompt marker line (starts with ">")
-      if (line.trim().startsWith('>')) {
-        foundPromptMarker = true;
-        continue;
+      // Stop at the next prompt marker "> " at start of line
+      if (line == '>' || line == '> ') {
+        break;
       }
 
-      // After finding the prompt, look for response lines starting with "|"
-      if (foundPromptMarker) {
-        // Stop at "Exiting..." or metadata lines
-        if (line.trim() == 'Exiting...' ||
-            line.contains('llama_') ||
-            line.contains('ggml_')) {
-          break;
-        }
-
-        // Response lines start with "| "
-        if (line.startsWith('| ')) {
-          responseLines.add(line.substring(2)); // Remove "| " prefix
-        } else if (line.startsWith('|')) {
-          // Handle case where there's no space after pipe
-          responseLines.add(line.substring(1).trimLeft());
-        } else if (responseLines.isNotEmpty && line.trim().isNotEmpty) {
-          // Continuation lines (multi-line responses)
-          responseLines.add(line);
-        }
+      // Response lines start with "| "
+      if (line.startsWith('| ')) {
+        responseLines.add(line.substring(2));
+        inResponse = true;
+      } else if (line.startsWith('|') && line.length > 1) {
+        responseLines.add(line.substring(1).trimLeft());
+        inResponse = true;
+      } else if (inResponse && line.trim().isNotEmpty && !line.trim().startsWith('>')) {
+        // Continuation lines (multi-line response)
+        responseLines.add(line);
       }
     }
 
     var response = responseLines.join('\n').trim();
 
-    // Clean up any backspace sequences (spinner artifacts)
-    response = response.replaceAll(RegExp(r'[\b]'), '');
-
-    // If we still have no response, try a fallback approach
-    if (response.isEmpty) {
-      // Look for text between "| " and "Exiting" or "llama_"
-      final pipeMatch = RegExp(r'\|\s*(.+?)(?=Exiting|llama_|\n\n|$)', dotAll: true)
-          .firstMatch(output);
-      if (pipeMatch != null) {
-        response = pipeMatch.group(1)?.trim() ?? '';
-      }
-    }
+    // Clean up any control characters (backspace, etc)
+    response = response.replaceAll(RegExp(r'[\b\x08]'), '');
 
     return response;
+  }
+
+  /// Clears the conversation context by sending /clear command.
+  Future<void> clearContext() async {
+    if (!_initialized || _process == null || _disposed) return;
+
+    _log.fine('Clearing conversation context');
+
+    try {
+      _outputBuffer.clear();
+      _responseCompleter = Completer<String>();
+      _ready = false;
+
+      _process!.stdin.writeln('/clear');
+      await _process!.stdin.flush();
+
+      // Wait for confirmation
+      await _responseCompleter!.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => '', // Ignore timeout for /clear
+      );
+
+      _ready = true;
+    } catch (e) {
+      _ready = true;
+      _log.warning('Failed to clear context: $e');
+    }
+  }
+
+  /// Disposes of resources and stops the process.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+
+    _log.fine('Disposing llama process');
+
+    await _cleanup();
+
+    _initialized = false;
+    _ready = false;
+  }
+
+  Future<void> _cleanup() async {
+    // Cancel subscriptions
+    await _stdoutSubscription?.cancel();
+    await _stderrSubscription?.cancel();
+    _stdoutSubscription = null;
+    _stderrSubscription = null;
+
+    // Try graceful shutdown
+    if (_process != null) {
+      try {
+        _process!.stdin.writeln('/exit');
+        await _process!.stdin.flush();
+        await _process!.stdin.close();
+
+        // Give it a moment to exit gracefully
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      } catch (_) {
+        // Ignore errors during cleanup
+      }
+
+      // Force kill if still running
+      _process!.kill(ProcessSignal.sigterm);
+      _process = null;
+    }
+
+    _outputBuffer.clear();
+    _responseCompleter = null;
   }
 }
