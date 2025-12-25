@@ -430,18 +430,19 @@ class VoiceAssistant {
 
     _cancelFollowUpTimer();
 
-    // Stop any playing audio immediately
-    await _audioOutput?.stop();
-
-    // Record barge-in event with current speaking state
-    await _recorder?.recordBargeIn();
-
-    _log.info('Barge-in: audio stopped, now listening');
-
-    // Transition to listening with clean state (no acknowledgment - stopping speech is enough)
+    // Transition to listening FIRST so audio immediately routes to VAD
+    // (before async stop() which takes ~100ms)
     _audioBuffer.clear();
     _vad?.reset();
     _setState(AssistantState.listening);
+
+    _log.info('Barge-in: stopping audio, now listening');
+
+    // Stop any playing audio (async, but audio already routing to VAD)
+    await _audioOutput?.stop();
+
+    // Record barge-in event
+    await _recorder?.recordBargeIn();
 
     _bargeInRequested = false;
   }
