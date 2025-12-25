@@ -34,6 +34,8 @@ class WakeWordDetector {
   final String? keywordsFile;
   final int sampleRate;
   final String? nativeLibPath;
+  final double keywordsThreshold;
+  final double keywordsScore;
 
   sherpa.KeywordSpotter? _spotter;
   sherpa.OnlineStream? _stream;
@@ -51,6 +53,8 @@ class WakeWordDetector {
     this.keywordsFile,
     this.sampleRate = 16000,
     this.nativeLibPath,
+    this.keywordsThreshold = 0.01,
+    this.keywordsScore = 2.0,
   });
 
   /// Whether the detector is initialized.
@@ -123,8 +127,8 @@ class WakeWordDetector {
         model: modelConfig,
         maxActivePaths: 4,
         numTrailingBlanks: 1,
-        keywordsThreshold: 0.25,
-        keywordsScore: 1.0,
+        keywordsThreshold: keywordsThreshold,
+        keywordsScore: keywordsScore,
         keywordsFile: keywordsFile ?? '',
       );
 

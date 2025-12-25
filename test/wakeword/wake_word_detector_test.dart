@@ -450,9 +450,13 @@ void main() {
 
           print('Total detections: ${events.length}');
 
-          // Should detect at least one wake word (recording has 6 "jarvis")
-          expect(events, isNotEmpty,
-              reason: 'Should detect JARVIS wake word from recording');
+          // Should detect at least 4 of 6 wake words
+          // (model detects ~67% due to phonetic variations in speech)
+          expect(events.length, greaterThanOrEqualTo(4),
+              reason: 'Should detect at least 4 JARVIS utterances');
+          for (final event in events) {
+            expect(event.keyword, equals('JARVIS'));
+          }
         } finally {
           await detector.dispose();
         }
