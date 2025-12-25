@@ -195,9 +195,11 @@ class LlamaProcess {
 
   /// Generates a response in a chat context.
   ///
-  /// If [history] is provided, it will be formatted as context for the message.
-  /// The persistent process also maintains its own conversation history.
-  /// The [maxTokens] parameter is ignored in persistent mode (set at init).
+  /// In persistent mode, the process maintains its own conversation history,
+  /// so the [history] parameter is ignored. Just send the current message.
+  /// The [maxTokens] parameter is also ignored (set at initialization).
+  ///
+  /// Use [clearContext] to reset the conversation if needed.
   Future<String> chat(
     String userMessage,
     List<ChatMessage> history, {
@@ -216,26 +218,9 @@ class LlamaProcess {
       throw LlamaException('LlamaProcess not ready for input');
     }
 
-    // Format message with history context if provided
-    String messageToSend;
-    if (history.isNotEmpty) {
-      // For history context, embed it naturally in the question
-      // Extract key facts from history for context
-      final contextParts = <String>[];
-      for (final msg in history) {
-        if (msg.role == 'user') {
-          contextParts.add('I said: "${msg.content}"');
-        } else if (msg.role == 'assistant') {
-          contextParts.add('You replied: "${msg.content}"');
-        }
-      }
-      final contextStr = contextParts.join(' Then ');
-      messageToSend = 'Earlier in our conversation: $contextStr. Now, $userMessage';
-    } else {
-      messageToSend = userMessage;
-    }
-
-    _log.fine('Sending message: $messageToSend');
+    // In persistent mode, the process maintains its own history.
+    // Just send the user message directly.
+    _log.fine('Sending message: $userMessage');
 
     try {
       // Clear buffer and set up response completer
@@ -244,7 +229,7 @@ class LlamaProcess {
       _ready = false;
 
       // Send the message
-      _process!.stdin.writeln(messageToSend);
+      _process!.stdin.writeln(userMessage);
       await _process!.stdin.flush();
 
       // Wait for response with timeout

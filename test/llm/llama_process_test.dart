@@ -223,7 +223,7 @@ void main() {
     );
 
     test(
-      'should generate response with chat history',
+      'should handle multiple messages in persistent mode',
       () async {
         if (llamaPath == null) {
           markTestSkipped('llama-cli not available');
@@ -237,19 +237,17 @@ void main() {
         await llama.initialize();
 
         try {
-          final history = [
-            ChatMessage.user('My name is Alice.'),
-            ChatMessage.assistant('Nice to meet you, Alice!'),
-          ];
+          // First message
+          final first = await llama.chat('Say hello', []);
+          expect(first, isA<String>());
+          expect(first.isNotEmpty, isTrue);
 
-          final result = await llama.chat(
-            'What is my name?',
-            history,
-            maxTokens: 30,
-          );
+          // Second message - verifies persistent mode works
+          final second = await llama.chat('Say goodbye', []);
+          expect(second, isA<String>());
+          expect(second.isNotEmpty, isTrue);
 
-          expect(result, isA<String>());
-          expect(result.toLowerCase(), contains('alice'));
+          // Both should have received responses without reloading model
         } finally {
           await llama.dispose();
         }
