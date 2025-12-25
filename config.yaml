@@ -16,7 +16,7 @@ wakeword_tokens_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-202
 wakeword_keywords_file: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/keywords.txt
 
 # TTS (Text-to-Speech)
-tts_model_path: ./models/tts/model.onnx
+tts_model_path: ./models/tts/jarvis-high.onnx
 tts_tokens_path: ./models/tts/tokens.txt
 tts_data_dir: ./models/tts/espeak-ng-data
 

@@ -47,6 +47,32 @@ dart run bin/jarvis.dart --config config.yaml
 - **Wake Word** - sherpa_onnx keyword spotter model
 - **TTS** - sherpa_onnx VITS model with espeak-ng data
 
+### Model Setup
+
+Scripts are provided to download the required models:
+
+```bash
+# Download and setup TTS model (JARVIS voice)
+cd models/tts
+./get_model.sh
+cd ../..
+
+# Download wake word detection model
+cd models/kws
+./get_model.sh
+cd ../..
+```
+
+The TTS script downloads:
+- JARVIS voice model from HuggingFace (piper format)
+- Converts to sherpa-onnx format with metadata
+- espeak-ng phoneme data
+
+**Note**: The convert script requires Python with the `onnx` package:
+```bash
+pip install onnx
+```
+
 ## Configuration
 
 Create `config.yaml` with your model paths:
@@ -68,7 +94,7 @@ wakeword_tokens_path: ./models/kws/tokens.txt
 wakeword_keywords_file: ./models/kws/keywords.txt
 
 # Text-to-Speech
-tts_model_path: ./models/tts/model.onnx
+tts_model_path: ./models/tts/jarvis-high.onnx
 tts_tokens_path: ./models/tts/tokens.txt
 tts_data_dir: ./models/tts/espeak-ng-data
 
@@ -208,6 +234,12 @@ jarvis/
 │   │   └── wake_word_detector.dart
 │   ├── logging.dart
 │   └── voice_assistant.dart     # Main orchestrator
+├── models/
+│   ├── kws/
+│   │   └── get_model.sh         # Download wake word model
+│   └── tts/
+│       ├── get_model.sh         # Download TTS model
+│       └── convert.py           # Convert to sherpa format
 ├── test/                        # 277 tests
 ├── tool/                        # Utility scripts
 ├── assets/
