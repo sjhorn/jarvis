@@ -93,6 +93,8 @@ class LlamaProcess {
         '-n',
         maxTokens.toString(),
         '--conversation',
+        '--simple-io', // Required for subprocess compatibility
+        '--no-display-prompt',
         '--no-show-timings',
       ];
 
@@ -267,40 +269,36 @@ class LlamaProcess {
 
   /// Parses the response from llama-cli output.
   ///
-  /// The format is:
+  /// With --simple-io and --no-display-prompt, the format is:
   /// ```
-  /// [echoed user input]
-  ///
-  /// | [response line 1]
-  /// [response line 2...]
+  /// [response text...]
   ///
   /// >
   /// ```
   String _parseResponse(String output, String userMessage) {
-    final lines = output.split('\n');
-    final responseLines = <String>[];
-    var inResponse = false;
-
-    for (final line in lines) {
-      // Stop at the next prompt marker "> " at start of line
-      if (line == '>' || line == '> ') {
-        break;
-      }
-
-      // Response lines start with "| "
-      if (line.startsWith('| ')) {
-        responseLines.add(line.substring(2));
-        inResponse = true;
-      } else if (line.startsWith('|') && line.length > 1) {
-        responseLines.add(line.substring(1).trimLeft());
-        inResponse = true;
-      } else if (inResponse && line.trim().isNotEmpty && !line.trim().startsWith('>')) {
-        // Continuation lines (multi-line response)
-        responseLines.add(line);
-      }
+    // Find the end marker ("> " prompt for next input)
+    var endIndex = output.lastIndexOf('\n> ');
+    if (endIndex == -1) {
+      endIndex = output.lastIndexOf('\n>');
+    }
+    if (endIndex == -1) {
+      endIndex = output.length;
     }
 
-    var response = responseLines.join('\n').trim();
+    var response = output.substring(0, endIndex);
+
+    // Strip any "| " prefix (for backwards compatibility)
+    final lines = response.split('\n');
+    final cleanedLines = lines.map((line) {
+      if (line.startsWith('| ')) {
+        return line.substring(2);
+      } else if (line.startsWith('|') && line.length > 1) {
+        return line.substring(1).trimLeft();
+      }
+      return line;
+    }).toList();
+
+    response = cleanedLines.join('\n').trim();
 
     // Clean up any control characters (backspace, etc)
     response = response.replaceAll(RegExp(r'[\b\x08]'), '');

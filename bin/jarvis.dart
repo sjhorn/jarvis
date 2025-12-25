@@ -207,6 +207,7 @@ Future<void> main(List<String> arguments) async {
 
     // Wait for shutdown signal
     await shutdownCompleter.future;
+    exit(0);
   } on VoiceAssistantException catch (e) {
     stderr.writeln('');
     stderr.writeln('Failed to start JARVIS: ${e.message}');
