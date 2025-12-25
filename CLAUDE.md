@@ -9,8 +9,47 @@ You are developing a Dart-based voice assistant application that will sound and 
 - **sherpa_onnx** package for wake word detection and TTS
 - **whisper.cpp** via process pipe for speech-to-text
 - **llama.cpp** via process pipe for LLM responses
-- **sox** using play and rec 
+- **sox** using play and rec
 - **mocktail** for mocking in tests
+- **logging** package for structured diagnostic output
+
+## Logging Guidelines
+
+**IMPORTANT**: Never use `print()` for debugging. Always use the `logging` package.
+
+### Setup
+```dart
+import 'package:logging/logging.dart';
+import 'logging.dart';
+
+final _log = Logger(Loggers.moduleName);
+```
+
+### Log Levels
+- `_log.finest()` - Trace-level (audio chunks, state transitions)
+- `_log.fine()` - Debug (method entry/exit, timing)
+- `_log.info()` - Important events (wake word detected, transcription)
+- `_log.warning()` - Recoverable issues
+- `_log.severe()` - Errors (include error object and stack trace)
+
+### Error Logging
+```dart
+try {
+  await doSomething();
+} catch (e, stackTrace) {
+  _log.severe('Operation failed', e, stackTrace);
+  rethrow;
+}
+```
+
+### CLI Debugging
+```bash
+# Run with debug logging
+dart run bin/jarvis.dart --config config.yaml --debug
+
+# Run with verbose logging
+dart run bin/jarvis.dart --config config.yaml --verbose
+```
 
 ## TDD Workflow
 

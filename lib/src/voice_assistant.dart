@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:logging/logging.dart';
+
 import 'audio/audio_input.dart';
 import 'audio/audio_output.dart';
 import 'context/conversation_context.dart';
 import 'llm/llama_process.dart';
+import 'logging.dart';
 import 'stt/whisper_process.dart';
 import 'tts/tts_manager.dart';
 import 'vad/voice_activity_detector.dart';
 import 'wakeword/wake_word_detector.dart';
+
+final _log = Logger(Loggers.voiceAssistant);
 
 /// Exception thrown when voice assistant operations fail.
 class VoiceAssistantException implements Exception {
@@ -163,16 +168,23 @@ class VoiceAssistant {
     }
     if (_isInitialized) return;
 
+    _log.info('Initializing voice assistant...');
+
     try {
       // Initialize audio input
+      _log.fine('Initializing audio input...');
       _audioInput = AudioInput();
       await _audioInput!.initialize();
+      _log.fine('Audio input initialized');
 
       // Initialize audio output
+      _log.fine('Initializing audio output...');
       _audioOutput = AudioOutput();
       await _audioOutput!.initialize();
+      _log.fine('Audio output initialized');
 
       // Initialize wake word detector
+      _log.fine('Initializing wake word detector...');
       _wakeWordDetector = WakeWordDetector(
         encoderPath: config.wakeWordEncoderPath,
         decoderPath: config.wakeWordDecoderPath,
@@ -182,28 +194,36 @@ class VoiceAssistant {
         nativeLibPath: config.sherpaLibPath,
       );
       await _wakeWordDetector!.initialize();
+      _log.fine('Wake word detector initialized');
 
       // Initialize VAD
+      _log.fine('Initializing VAD...');
       _vad = VoiceActivityDetector(
         silenceThreshold: config.silenceThreshold,
         silenceDuration: config.silenceDuration,
       );
+      _log.fine('VAD initialized');
 
       // Initialize Whisper
+      _log.fine('Initializing Whisper (model: ${config.whisperModelPath})...');
       _whisper = WhisperProcess(
         modelPath: config.whisperModelPath,
         executablePath: config.whisperExecutablePath,
       );
       await _whisper!.initialize();
+      _log.fine('Whisper initialized');
 
       // Initialize Llama
+      _log.fine('Initializing Llama (model: ${config.llamaModelRepo})...');
       _llama = LlamaProcess(
         modelRepo: config.llamaModelRepo,
         executablePath: config.llamaExecutablePath,
       );
       await _llama!.initialize();
+      _log.fine('Llama initialized');
 
       // Initialize TTS
+      _log.fine('Initializing TTS...');
       _tts = TtsManager(
         modelPath: config.ttsModelPath,
         tokensPath: config.ttsTokensPath,
@@ -211,9 +231,12 @@ class VoiceAssistant {
         nativeLibPath: config.sherpaLibPath,
       );
       await _tts!.initialize();
+      _log.fine('TTS initialized');
 
       _isInitialized = true;
-    } catch (e) {
+      _log.info('Voice assistant initialization complete');
+    } catch (e, stackTrace) {
+      _log.severe('Failed to initialize assistant', e, stackTrace);
       await _disposeModules();
       throw VoiceAssistantException('Failed to initialize assistant', e);
     }
@@ -271,6 +294,8 @@ class VoiceAssistant {
   void _onWakeWord(WakeWordEvent event) {
     if (_currentState != AssistantState.listeningForWakeWord) return;
 
+    _log.info('Wake word detected: "${event.keyword}"');
+
     // Transition to listening state
     _setState(AssistantState.listening);
     _audioBuffer.clear();
@@ -289,7 +314,11 @@ class VoiceAssistant {
 
   /// Processes user speech after silence is detected.
   Future<void> _processUserSpeech() async {
+    final audioSize = _audioBuffer.length;
+    _log.fine('Processing user speech (buffer size: $audioSize bytes)');
+
     if (_audioBuffer.isEmpty) {
+      _log.fine('Audio buffer empty, returning to wake word detection');
       _setState(AssistantState.listeningForWakeWord);
       return;
     }
@@ -301,20 +330,26 @@ class VoiceAssistant {
       final audioData = Uint8List.fromList(_audioBuffer);
       _audioBuffer.clear();
 
+      _log.fine('Transcribing audio with Whisper...');
       final transcription = await _whisper!.transcribe(audioData);
+
       if (transcription.isEmpty) {
+        _log.fine('Transcription empty, returning to wake word detection');
         _setState(AssistantState.listeningForWakeWord);
         return;
       }
 
+      _log.info('Transcription: "$transcription"');
       _transcriptionController.add(transcription);
 
       // Add to conversation context
       _context.addUserMessage(transcription);
 
       // Get LLM response
+      _log.fine('Generating LLM response...');
       final chatMessages = _context.getChatMessages();
       final response = await _llama!.chat(transcription, chatMessages);
+      _log.info('LLM response: "$response"');
 
       // Add response to context
       _context.addAssistantMessage(response);
@@ -322,13 +357,17 @@ class VoiceAssistant {
 
       // Speak response
       _setState(AssistantState.speaking);
+      _log.fine('Synthesizing speech...');
       final ttsResult = await _tts!.synthesize(response);
       final pcmAudio = ttsResult.toPcm16();
+      _log.fine('Playing audio (${pcmAudio.length} bytes)...');
       await _audioOutput!.play(pcmAudio);
 
+      _log.fine('Response complete, returning to wake word detection');
       // Return to listening for wake word
       _setState(AssistantState.listeningForWakeWord);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _log.severe('Error processing speech', e, stackTrace);
       _setState(AssistantState.error);
       // Recover by returning to listening state after a delay
       await Future<void>.delayed(const Duration(seconds: 1));

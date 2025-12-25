@@ -519,6 +519,8 @@ dependencies:
   sherpa_onnx: ^latest  # Wake word, VAD, TTS
   path: ^latest
   async: ^latest
+  yaml: ^latest         # Config file parsing
+  logging: ^latest      # Structured logging
 
 dev_dependencies:
   test: ^latest
@@ -608,6 +610,39 @@ voice_assistant/
 │       └── models/
 └── bin/
     └── main.dart                      # CLI entry point
+```
+
+---
+
+## Logging
+
+Use the `logging` package for all diagnostic output. Never use `print()` for debugging.
+
+### Log Levels
+- **FINEST/TRACE**: Extremely detailed tracing (audio chunks, state machine transitions)
+- **FINE/DEBUG**: Debug information (method entry/exit, timing, buffer sizes)
+- **INFO**: Important events (wake word detected, transcription, responses)
+- **WARNING**: Recoverable issues (timeouts, retries)
+- **SEVERE/ERROR**: Errors that affect functionality
+
+### Usage
+```dart
+import 'package:logging/logging.dart';
+import 'logging.dart';
+
+final _log = Logger(Loggers.voiceAssistant);
+
+// In code:
+_log.fine('Initializing module...');
+_log.info('Wake word detected: "$keyword"');
+_log.severe('Failed to transcribe', error, stackTrace);
+```
+
+### CLI Options
+```bash
+dart run bin/jarvis.dart --config config.yaml --debug  # Enable debug logging
+dart run bin/jarvis.dart --config config.yaml --verbose # Enable info logging
+dart run bin/jarvis.dart --config config.yaml --trace   # Enable trace logging
 ```
 
 ---

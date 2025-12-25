@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:jarvis/src/cli/config_loader.dart';
+import 'package:jarvis/src/logging.dart';
 import 'package:jarvis/src/voice_assistant.dart';
+import 'package:logging/logging.dart';
 
 /// Default JARVIS system prompt.
 const defaultSystemPrompt = '''
@@ -20,6 +22,10 @@ Usage: dart run bin/jarvis.dart [options]
 
 Options:
   -c, --config <path>   Path to YAML configuration file
+  -v, --verbose         Enable verbose logging (INFO level)
+  -d, --debug           Enable debug logging (FINE level, includes timing)
+  --trace               Enable trace logging (FINEST level, very verbose)
+  -q, --quiet           Suppress all logging output
   -h, --help            Show this help message
 
 Environment Variables (alternative to config file):
@@ -56,6 +62,8 @@ Example:
 Future<void> main(List<String> arguments) async {
   // Parse command line arguments
   String? configPath;
+  var logLevel = Level.WARNING; // Default: only warnings and errors
+
   for (var i = 0; i < arguments.length; i++) {
     final arg = arguments[i];
     if (arg == '-h' || arg == '--help') {
@@ -68,8 +76,19 @@ Future<void> main(List<String> arguments) async {
       }
       configPath = arguments[i + 1];
       i++;
+    } else if (arg == '-v' || arg == '--verbose') {
+      logLevel = Level.INFO;
+    } else if (arg == '-d' || arg == '--debug') {
+      logLevel = Level.FINE;
+    } else if (arg == '--trace') {
+      logLevel = Level.FINEST;
+    } else if (arg == '-q' || arg == '--quiet') {
+      logLevel = Level.OFF;
     }
   }
+
+  // Initialize logging
+  LogConfig.initialize(level: logLevel);
 
   // Load configuration
   AppConfig config;
