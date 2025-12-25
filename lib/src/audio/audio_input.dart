@@ -141,12 +141,28 @@ class AudioInput {
 
   /// Disposes of resources.
   Future<void> dispose() async {
+    // Always try to stop recording and kill the process
     if (_isRecording) {
-      await stopRecording();
+      try {
+        await stopRecording();
+      } catch (_) {
+        // Ignore errors during cleanup
+      }
     }
+
+    // Force kill the rec process if it's still running
+    if (_recProcess != null) {
+      _recProcess!.kill(ProcessSignal.sigkill);
+      _recProcess = null;
+    }
+
+    // Cancel subscription if still active
+    await _stdoutSubscription?.cancel();
+    _stdoutSubscription = null;
 
     await _audioController.close();
     _disposed = true;
     _initialized = false;
+    _isRecording = false;
   }
 }
