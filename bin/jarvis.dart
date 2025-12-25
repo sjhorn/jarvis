@@ -150,6 +150,7 @@ Future<void> main(List<String> arguments) async {
     followUpTimeout: config.followUpTimeout,
     statementFollowUpTimeout: config.statementFollowUpTimeout,
     enableBargeIn: config.enableBargeIn,
+    bargeInDir: config.bargeInDir,
     recordingEnabled: effectiveRecordingEnabled,
     sessionDir: effectiveSessionDir,
   );

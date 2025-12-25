@@ -41,6 +41,7 @@ class AppConfig {
   final Duration followUpTimeout;
   final Duration statementFollowUpTimeout;
   final bool enableBargeIn;
+  final String? bargeInDir;
 
   // Session recording
   final bool recordingEnabled;
@@ -70,6 +71,7 @@ class AppConfig {
     this.followUpTimeout = const Duration(seconds: 4),
     this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
+    this.bargeInDir,
     this.recordingEnabled = false,
     this.sessionDir = './sessions',
   });
@@ -100,6 +102,7 @@ class AppConfig {
       followUpTimeout: followUpTimeout,
       statementFollowUpTimeout: statementFollowUpTimeout,
       enableBargeIn: enableBargeIn,
+      bargeInDir: bargeInDir,
       recordingEnabled: recordingEnabled,
       sessionDir: sessionDir,
     );
@@ -195,6 +198,7 @@ class ConfigLoader {
         milliseconds: _parseInt(environment['STATEMENT_FOLLOW_UP_TIMEOUT_MS'], 4000),
       ),
       enableBargeIn: _parseBool(environment['ENABLE_BARGE_IN'], true),
+      bargeInDir: environment['BARGE_IN_DIR'],
       recordingEnabled: _parseBool(environment['RECORDING_ENABLED'], false),
       sessionDir: environment['SESSION_DIR'] ?? './sessions',
     );
@@ -257,6 +261,7 @@ class ConfigLoader {
           milliseconds: _parseYamlInt(yaml['statement_follow_up_timeout_ms'], 4000),
         ),
         enableBargeIn: _parseYamlBool(yaml['enable_barge_in'], true),
+        bargeInDir: yaml['barge_in_dir'] as String?,
         recordingEnabled: _parseYamlBool(yaml['recording_enabled'], false),
         sessionDir: (yaml['session_dir'] as String?) ?? './sessions',
       );

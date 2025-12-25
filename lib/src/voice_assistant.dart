@@ -82,6 +82,7 @@ class VoiceAssistantConfig {
 
   // Barge-in settings
   final bool enableBargeIn;
+  final String? bargeInDir;
 
   // Session recording settings
   final bool recordingEnabled;
@@ -111,6 +112,7 @@ class VoiceAssistantConfig {
     this.followUpTimeout = const Duration(seconds: 4),
     this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
+    this.bargeInDir,
     this.recordingEnabled = false,
     this.sessionDir = './sessions',
   });
@@ -149,6 +151,7 @@ class VoiceAssistant {
   LlamaProcess? _llama;
   TtsManager? _tts;
   AcknowledgmentPlayer? _acknowledgmentPlayer;
+  AcknowledgmentPlayer? _bargeInPlayer;
   SessionRecorder? _recorder;
 
   // Conversation context
@@ -300,6 +303,20 @@ class VoiceAssistant {
         _log.info('No acknowledgment directory configured');
       }
 
+      // Initialize barge-in player (optional)
+      if (config.bargeInDir != null) {
+        _log.info('Initializing barge-in player...');
+        _bargeInPlayer = AcknowledgmentPlayer(
+          audioDirectory: config.bargeInDir!,
+          audioOutput: _audioOutput!,
+        );
+        await _bargeInPlayer!.initialize();
+        _log.info(
+          'Barge-in player initialized '
+          '(${_bargeInPlayer!.count} audio files)',
+        );
+      }
+
       // Initialize session recorder if enabled
       if (config.recordingEnabled) {
         _log.info('Initializing session recorder...');
@@ -440,6 +457,11 @@ class VoiceAssistant {
 
     // Stop any playing audio (async, but audio already routing to VAD)
     await _audioOutput?.stop();
+
+    // Play barge-in acknowledgment to confirm we're listening
+    if (_bargeInPlayer != null && _bargeInPlayer!.hasAcknowledgments) {
+      await _bargeInPlayer!.playRandom();
+    }
 
     // Record barge-in event
     await _recorder?.recordBargeIn();
@@ -760,6 +782,7 @@ class VoiceAssistant {
     await _llama?.dispose();
     await _tts?.dispose();
     await _acknowledgmentPlayer?.dispose();
+    await _bargeInPlayer?.dispose();
     await _recorder?.dispose();
 
     _audioInput = null;
@@ -770,6 +793,7 @@ class VoiceAssistant {
     _llama = null;
     _tts = null;
     _acknowledgmentPlayer = null;
+    _bargeInPlayer = null;
     _recorder = null;
 
     _isInitialized = false;

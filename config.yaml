@@ -43,7 +43,7 @@ system_prompt: |
 silence_threshold: 0.01
 silence_duration_ms: 800
 max_history_length: 10
-sentence_pause_ms: 500
+sentence_pause_ms: 200
 
 # Follow-up listening
 enable_follow_up: true
@@ -52,3 +52,4 @@ statement_follow_up_timeout_ms: 4000  # Timeout after statements (no prompt, jus
 
 # Barge-in (interrupt while speaking)
 enable_barge_in: true
+barge_in_dir: assets/bargein

@@ -20,7 +20,7 @@ class AcknowledgmentPhrases {
     'Listening, sir.',
     'How may I assist, sir?',
     'Awaiting your instructions, sir.',
-    'Systems active. Yes, sir.',
+    'System active.',
     'Of course, sir.',
     'Right away, sir.',
     'Confirmed, sir.',
