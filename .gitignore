@@ -21,3 +21,4 @@ doc/api/
 # Large model files and native libraries
 models/
 native/
+sessions/

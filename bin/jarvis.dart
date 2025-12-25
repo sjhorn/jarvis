@@ -26,6 +26,8 @@ Options:
   -d, --debug           Enable debug logging (FINE level, includes timing)
   --trace               Enable trace logging (FINEST level, very verbose)
   -q, --quiet           Suppress all logging output
+  --record              Enable session recording (saves to ./sessions/)
+  --record-dir <path>   Enable recording with custom directory
   -h, --help            Show this help message
 
 Environment Variables (alternative to config file):
@@ -63,6 +65,8 @@ Future<void> main(List<String> arguments) async {
   // Parse command line arguments
   String? configPath;
   var logLevel = Level.WARNING; // Default: only warnings and errors
+  var recordingEnabled = false;
+  String? recordDir;
 
   for (var i = 0; i < arguments.length; i++) {
     final arg = arguments[i];
@@ -84,6 +88,16 @@ Future<void> main(List<String> arguments) async {
       logLevel = Level.FINEST;
     } else if (arg == '-q' || arg == '--quiet') {
       logLevel = Level.OFF;
+    } else if (arg == '--record') {
+      recordingEnabled = true;
+    } else if (arg == '--record-dir') {
+      if (i + 1 >= arguments.length) {
+        stderr.writeln('Error: --record-dir requires a path argument');
+        exit(1);
+      }
+      recordingEnabled = true;
+      recordDir = arguments[i + 1];
+      i++;
     }
   }
 
@@ -107,6 +121,10 @@ Future<void> main(List<String> arguments) async {
     exit(1);
   }
 
+  // CLI args override config file values for recording
+  final effectiveRecordingEnabled = recordingEnabled || config.recordingEnabled;
+  final effectiveSessionDir = recordDir ?? config.sessionDir;
+
   // Apply default system prompt if not set
   final assistantConfig = VoiceAssistantConfig(
     whisperModelPath: config.whisperModelPath,
@@ -128,6 +146,12 @@ Future<void> main(List<String> arguments) async {
     silenceDuration: config.silenceDuration,
     maxHistoryLength: config.maxHistoryLength,
     sentencePause: config.sentencePause,
+    enableFollowUp: config.enableFollowUp,
+    followUpTimeout: config.followUpTimeout,
+    statementFollowUpTimeout: config.statementFollowUpTimeout,
+    enableBargeIn: config.enableBargeIn,
+    recordingEnabled: effectiveRecordingEnabled,
+    sessionDir: effectiveSessionDir,
   );
 
   // Create voice assistant
@@ -174,6 +198,10 @@ Future<void> main(List<String> arguments) async {
         print('[State] Processing...');
       case AssistantState.speaking:
         print('[State] Speaking...');
+      case AssistantState.awaitingFollowUp:
+        print('[State] Awaiting your response...');
+      case AssistantState.prompting:
+        print('[State] Prompting...');
       case AssistantState.error:
         print('[State] Error occurred, recovering...');
     }

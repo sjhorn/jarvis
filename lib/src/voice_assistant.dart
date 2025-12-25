@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:logging/logging.dart';
 
 import 'audio/acknowledgment_player.dart';
+import 'recording/session_recorder.dart';
 import 'audio/audio_input.dart';
 import 'audio/audio_output.dart';
 import 'context/conversation_context.dart';
@@ -77,9 +78,14 @@ class VoiceAssistantConfig {
   // Follow-up settings
   final bool enableFollowUp;
   final Duration followUpTimeout;
+  final Duration statementFollowUpTimeout;
 
   // Barge-in settings
   final bool enableBargeIn;
+
+  // Session recording settings
+  final bool recordingEnabled;
+  final String sessionDir;
 
   VoiceAssistantConfig({
     required this.whisperModelPath,
@@ -102,8 +108,11 @@ class VoiceAssistantConfig {
     this.maxHistoryLength = 10,
     this.sentencePause = const Duration(milliseconds: 300),
     this.enableFollowUp = true,
-    this.followUpTimeout = const Duration(seconds: 8),
+    this.followUpTimeout = const Duration(seconds: 4),
+    this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
+    this.recordingEnabled = false,
+    this.sessionDir = './sessions',
   });
 }
 
@@ -140,6 +149,7 @@ class VoiceAssistant {
   LlamaProcess? _llama;
   TtsManager? _tts;
   AcknowledgmentPlayer? _acknowledgmentPlayer;
+  SessionRecorder? _recorder;
 
   // Conversation context
   late final ConversationContext _context;
@@ -150,6 +160,9 @@ class VoiceAssistant {
   // Audio buffer for recording
   final List<int> _audioBuffer = [];
 
+  // Session recording counter
+  int _utteranceCount = 0;
+
   // Subscriptions
   StreamSubscription? _audioSubscription;
   StreamSubscription? _wakeWordSubscription;
@@ -159,9 +172,15 @@ class VoiceAssistant {
   Timer? _followUpTimer;
   String? _lastQuestion;
   int _promptCount = 0;
+  DateTime? _followUpStartTime;
+  static const _followUpGracePeriod = Duration(milliseconds: 500);
 
   // Barge-in state
   bool _bargeInRequested = false;
+
+  // Wake word cooldown to prevent duplicate detections
+  DateTime? _lastWakeWordTime;
+  static const _wakeWordCooldown = Duration(seconds: 2);
 
   VoiceAssistant({required this.config}) {
     _context = ConversationContext(
@@ -281,6 +300,14 @@ class VoiceAssistant {
         _log.info('No acknowledgment directory configured');
       }
 
+      // Initialize session recorder if enabled
+      if (config.recordingEnabled) {
+        _log.info('Initializing session recorder...');
+        _recorder = SessionRecorder(baseDir: config.sessionDir);
+        await _recorder!.initialize(_buildSessionConfig());
+        _log.info('Session recording enabled: ${_recorder!.sessionId}');
+      }
+
       _isInitialized = true;
       _log.info('Voice assistant initialization complete');
     } catch (e, stackTrace) {
@@ -355,6 +382,15 @@ class VoiceAssistant {
 
   /// Handles wake word detection.
   Future<void> _onWakeWord(WakeWordEvent event) async {
+    // Ignore duplicate detections within cooldown period
+    final now = DateTime.now();
+    if (_lastWakeWordTime != null &&
+        now.difference(_lastWakeWordTime!) < _wakeWordCooldown) {
+      _log.fine('Ignoring duplicate wake word detection (cooldown)');
+      return;
+    }
+    _lastWakeWordTime = now;
+
     // Handle barge-in during speaking or prompting
     if (_currentState == AssistantState.speaking ||
         _currentState == AssistantState.prompting) {
@@ -368,6 +404,7 @@ class VoiceAssistant {
     if (_currentState != AssistantState.listeningForWakeWord) return;
 
     _log.info('Wake word detected: "${event.keyword}"');
+    await _recorder?.recordWakeWord(event.keyword);
 
     // Play acknowledgment if available
     if (_acknowledgmentPlayer != null && _acknowledgmentPlayer!.hasAcknowledgments) {
@@ -388,31 +425,43 @@ class VoiceAssistant {
 
   /// Handles barge-in (user interrupts while speaking).
   Future<void> _handleBargeIn() async {
+    if (_bargeInRequested) return; // Already handling barge-in
     _bargeInRequested = true;
+
     _cancelFollowUpTimer();
 
-    // Stop any playing audio
+    // Stop any playing audio immediately
     await _audioOutput?.stop();
 
-    _log.info('Barge-in: transitioning to listening');
+    // Record barge-in event with current speaking state
+    await _recorder?.recordBargeIn();
 
-    // Play brief acknowledgment
-    if (_acknowledgmentPlayer != null && _acknowledgmentPlayer!.hasAcknowledgments) {
-      await _acknowledgmentPlayer!.playRandom();
-    }
+    _log.info('Barge-in: audio stopped, now listening');
 
-    // Transition to listening state
-    _setState(AssistantState.listening);
+    // Transition to listening with clean state (no acknowledgment - stopping speech is enough)
     _audioBuffer.clear();
     _vad?.reset();
+    _setState(AssistantState.listening);
+
     _bargeInRequested = false;
   }
 
   /// Handles VAD events.
   Future<void> _onVadEvent(VADEvent event) async {
+    _log.finest('VAD event: ${event.state} (state: $_currentState)');
+
     // Handle VAD in awaitingFollowUp state
     if (_currentState == AssistantState.awaitingFollowUp) {
       if (event.state == VADState.speech) {
+        // Ignore speech events during grace period to let audio settle
+        if (_followUpStartTime != null) {
+          final elapsed = DateTime.now().difference(_followUpStartTime!);
+          if (elapsed < _followUpGracePeriod) {
+            _log.fine('Ignoring speech during grace period (${elapsed.inMilliseconds}ms)');
+            return;
+          }
+        }
+
         // User started speaking, transition to listening
         _log.info('Speech detected during follow-up, transitioning to listening');
         _cancelFollowUpTimer();
@@ -432,20 +481,32 @@ class VoiceAssistant {
   }
 
   /// Starts the follow-up timeout timer.
-  void _startFollowUpTimer() {
+  void _startFollowUpTimer(Duration timeout) {
     _cancelFollowUpTimer();
-    _followUpTimer = Timer(config.followUpTimeout, _onFollowUpTimeout);
+    _log.fine('Starting follow-up timer (${timeout.inMilliseconds}ms)');
+    _followUpTimer = Timer(timeout, () {
+      _log.fine('Follow-up timer fired');
+      _onFollowUpTimeout();
+    });
   }
 
   /// Cancels the follow-up timeout timer.
   void _cancelFollowUpTimer() {
+    if (_followUpTimer != null) {
+      _log.fine('Cancelling follow-up timer');
+    }
     _followUpTimer?.cancel();
     _followUpTimer = null;
   }
 
   /// Handles follow-up timeout.
   Future<void> _onFollowUpTimeout() async {
-    if (_currentState != AssistantState.awaitingFollowUp) return;
+    _log.fine('_onFollowUpTimeout called (state: $_currentState, promptCount: $_promptCount, lastQuestion: $_lastQuestion)');
+
+    if (_currentState != AssistantState.awaitingFollowUp) {
+      _log.fine('Ignoring timeout - not in awaitingFollowUp state');
+      return;
+    }
 
     if (_promptCount == 0 && _lastQuestion != null) {
       // First timeout: repeat the question
@@ -457,6 +518,7 @@ class VoiceAssistant {
       _log.info('No follow-up response, returning to wake word detection');
       _lastQuestion = null;
       _promptCount = 0;
+      _followUpStartTime = null;
       _setState(AssistantState.listeningForWakeWord);
     }
   }
@@ -468,9 +530,9 @@ class VoiceAssistant {
     try {
       final sentences = _textProcessor.process(text);
       for (var i = 0; i < sentences.length; i++) {
-        // Check for barge-in
-        if (_bargeInRequested) {
-          _log.fine('Barge-in during prompting, stopping');
+        // Check for barge-in (check state, not just flag)
+        if (_currentState != AssistantState.prompting) {
+          _log.fine('State changed during prompting (barge-in), stopping');
           return;
         }
 
@@ -485,10 +547,11 @@ class VoiceAssistant {
         }
       }
 
-      // Return to awaiting follow-up
+      // Return to awaiting follow-up (use question timeout since we just prompted)
+      _followUpStartTime = DateTime.now();
       _setState(AssistantState.awaitingFollowUp);
       _vad?.reset();
-      _startFollowUpTimer();
+      _startFollowUpTimer(config.followUpTimeout);
     } catch (e, stackTrace) {
       _log.severe('Error speaking prompt', e, stackTrace);
       _setState(AssistantState.listeningForWakeWord);
@@ -513,6 +576,10 @@ class VoiceAssistant {
       final audioData = Uint8List.fromList(_audioBuffer);
       _audioBuffer.clear();
 
+      // Record user audio
+      final audioRef = _utteranceCount++;
+      await _recorder?.recordUserAudio(audioData);
+
       _log.fine('Transcribing audio with Whisper...');
       final transcription = await _whisper!.transcribe(audioData);
 
@@ -524,6 +591,9 @@ class VoiceAssistant {
 
       _log.info('Transcription: "$transcription"');
       _transcriptionController.add(transcription);
+
+      // Record transcription
+      await _recorder?.recordTranscription(transcription, audioRef);
 
       // Add to conversation context
       _context.addUserMessage(transcription);
@@ -543,10 +613,14 @@ class VoiceAssistant {
       final sentences = _textProcessor.process(response);
       _log.fine('Split response into ${sentences.length} sentences');
 
+      // Record response and set speaking state for barge-in tracking
+      await _recorder?.recordResponse(response, sentences.length);
+      _recorder?.setSpeakingState(sentences);
+
       for (var i = 0; i < sentences.length; i++) {
-        // Check for barge-in before each sentence
-        if (_bargeInRequested) {
-          _log.fine('Barge-in during speaking, stopping');
+        // Check for barge-in before each sentence (check state, not just flag)
+        if (_currentState != AssistantState.speaking) {
+          _log.fine('State changed during speaking (barge-in), stopping');
           return;
         }
 
@@ -557,21 +631,37 @@ class VoiceAssistant {
         _log.fine('Playing audio (${pcmAudio.length} bytes at ${ttsResult.sampleRate}Hz)...');
         await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
 
+        // Advance sentence index for barge-in tracking
+        _recorder?.advanceSentence();
+
         // Add pause between sentences (but not after the last one)
         if (i < sentences.length - 1 && config.sentencePause.inMilliseconds > 0) {
           await Future<void>.delayed(config.sentencePause);
         }
       }
 
-      // Check if response ends with a question and follow-up is enabled
-      final lastQuestion = _textProcessor.extractLastQuestion(sentences);
-      if (lastQuestion != null && config.enableFollowUp) {
-        _log.info('Response ends with question, awaiting follow-up');
-        _lastQuestion = lastQuestion;
+      // Check if we were interrupted by barge-in during or after last sentence
+      if (_currentState != AssistantState.speaking) {
+        _log.fine('Barge-in detected, skipping follow-up logic');
+        return;
+      }
+
+      // Always listen for follow-up if enabled
+      if (config.enableFollowUp) {
+        final lastQuestion = _textProcessor.extractLastQuestion(sentences);
+        _lastQuestion = lastQuestion; // null if not a question
         _promptCount = 0;
+        _followUpStartTime = DateTime.now();
         _setState(AssistantState.awaitingFollowUp);
         _vad?.reset();
-        _startFollowUpTimer();
+
+        if (lastQuestion != null) {
+          _log.info('Response ends with question, awaiting follow-up (${config.followUpTimeout.inSeconds}s)');
+          _startFollowUpTimer(config.followUpTimeout);
+        } else {
+          _log.info('Awaiting follow-up (${config.statementFollowUpTimeout.inSeconds}s)');
+          _startFollowUpTimer(config.statementFollowUpTimeout);
+        }
       } else {
         _log.fine('Response complete, returning to wake word detection');
         _lastQuestion = null;
@@ -585,6 +675,18 @@ class VoiceAssistant {
       await Future<void>.delayed(const Duration(seconds: 1));
       _setState(AssistantState.listeningForWakeWord);
     }
+  }
+
+  /// Builds session config for recording.
+  Map<String, dynamic> _buildSessionConfig() {
+    return {
+      'systemPrompt': config.systemPrompt,
+      'enableFollowUp': config.enableFollowUp,
+      'followUpTimeout': config.followUpTimeout.inMilliseconds,
+      'enableBargeIn': config.enableBargeIn,
+      'whisperModel': config.whisperModelPath,
+      'llamaModel': config.llamaModelRepo,
+    };
   }
 
   /// Updates the current state and notifies listeners.
@@ -624,6 +726,7 @@ class VoiceAssistant {
     _audioBuffer.clear();
     _lastQuestion = null;
     _promptCount = 0;
+    _followUpStartTime = null;
     _setState(AssistantState.idle);
   }
 
@@ -656,6 +759,7 @@ class VoiceAssistant {
     await _llama?.dispose();
     await _tts?.dispose();
     await _acknowledgmentPlayer?.dispose();
+    await _recorder?.dispose();
 
     _audioInput = null;
     _audioOutput = null;
@@ -665,6 +769,7 @@ class VoiceAssistant {
     _llama = null;
     _tts = null;
     _acknowledgmentPlayer = null;
+    _recorder = null;
 
     _isInitialized = false;
   }

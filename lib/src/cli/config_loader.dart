@@ -39,7 +39,12 @@ class AppConfig {
   final Duration sentencePause;
   final bool enableFollowUp;
   final Duration followUpTimeout;
+  final Duration statementFollowUpTimeout;
   final bool enableBargeIn;
+
+  // Session recording
+  final bool recordingEnabled;
+  final String sessionDir;
 
   AppConfig({
     required this.whisperModelPath,
@@ -62,8 +67,11 @@ class AppConfig {
     this.maxHistoryLength = 10,
     this.sentencePause = const Duration(milliseconds: 300),
     this.enableFollowUp = true,
-    this.followUpTimeout = const Duration(seconds: 8),
+    this.followUpTimeout = const Duration(seconds: 4),
+    this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
+    this.recordingEnabled = false,
+    this.sessionDir = './sessions',
   });
 
   /// Converts to VoiceAssistantConfig for use with VoiceAssistant.
@@ -90,7 +98,10 @@ class AppConfig {
       sentencePause: sentencePause,
       enableFollowUp: enableFollowUp,
       followUpTimeout: followUpTimeout,
+      statementFollowUpTimeout: statementFollowUpTimeout,
       enableBargeIn: enableBargeIn,
+      recordingEnabled: recordingEnabled,
+      sessionDir: sessionDir,
     );
   }
 }
@@ -178,9 +189,14 @@ class ConfigLoader {
       ),
       enableFollowUp: _parseBool(environment['ENABLE_FOLLOW_UP'], true),
       followUpTimeout: Duration(
-        milliseconds: _parseInt(environment['FOLLOW_UP_TIMEOUT_MS'], 8000),
+        milliseconds: _parseInt(environment['FOLLOW_UP_TIMEOUT_MS'], 4000),
+      ),
+      statementFollowUpTimeout: Duration(
+        milliseconds: _parseInt(environment['STATEMENT_FOLLOW_UP_TIMEOUT_MS'], 4000),
       ),
       enableBargeIn: _parseBool(environment['ENABLE_BARGE_IN'], true),
+      recordingEnabled: _parseBool(environment['RECORDING_ENABLED'], false),
+      sessionDir: environment['SESSION_DIR'] ?? './sessions',
     );
   }
 
@@ -235,9 +251,14 @@ class ConfigLoader {
         ),
         enableFollowUp: _parseYamlBool(yaml['enable_follow_up'], true),
         followUpTimeout: Duration(
-          milliseconds: _parseYamlInt(yaml['follow_up_timeout_ms'], 8000),
+          milliseconds: _parseYamlInt(yaml['follow_up_timeout_ms'], 4000),
+        ),
+        statementFollowUpTimeout: Duration(
+          milliseconds: _parseYamlInt(yaml['statement_follow_up_timeout_ms'], 4000),
         ),
         enableBargeIn: _parseYamlBool(yaml['enable_barge_in'], true),
+        recordingEnabled: _parseYamlBool(yaml['recording_enabled'], false),
+        sessionDir: (yaml['session_dir'] as String?) ?? './sessions',
       );
     } on YamlException catch (e) {
       throw ConfigException('Invalid YAML in config file', e);
