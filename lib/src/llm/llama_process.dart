@@ -1,6 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
+
+import '../logging.dart';
+
+final _log = Logger(Loggers.llama);
+
 /// Exception thrown by LlamaProcess operations.
 class LlamaException implements Exception {
   final String message;
@@ -127,6 +133,7 @@ class LlamaProcess {
         '-n',
         maxTokens.toString(),
         '--single-turn',
+        '--no-show-timings',
       ];
 
       // Add system prompt if provided
@@ -134,18 +141,16 @@ class LlamaProcess {
         args.addAll(['-sys', systemPrompt!]);
       }
 
-      // For chat with history, we use conversation mode
+      // Build the prompt with history context
+      String fullPrompt;
       if (history != null && history.isNotEmpty) {
-        // Build conversation context
-        // llama-cli with gemma model handles chat formatting
-        args.add('-cnv');
-
-        // Format history into prompt
-        final contextPrompt = _formatHistoryAsPrompt(history, prompt);
-        args.addAll(['-p', contextPrompt]);
+        fullPrompt = _formatHistoryAsPrompt(history, prompt);
       } else {
-        args.addAll(['-p', prompt]);
+        fullPrompt = prompt;
       }
+      args.addAll(['-p', fullPrompt]);
+
+      _log.fine('Running llama-cli with prompt: $fullPrompt');
 
       final result = await Process.run(
         executablePath,
@@ -154,6 +159,9 @@ class LlamaProcess {
         stdoutEncoding: const SystemEncoding(),
       ).timeout(timeout);
 
+      _log.finest('llama-cli stdout:\n${result.stdout}');
+      _log.finest('llama-cli stderr:\n${result.stderr}');
+
       if (result.exitCode != 0) {
         throw LlamaException(
           'Llama process failed with exit code ${result.exitCode}: ${result.stderr}',
@@ -161,7 +169,9 @@ class LlamaProcess {
       }
 
       final output = result.stdout as String;
-      return _parseOutput(output, prompt);
+      final response = _parseOutput(output);
+      _log.fine('Parsed response: $response');
+      return response;
     } on TimeoutException {
       throw LlamaException('Llama generation timed out after $timeout');
     } on ProcessException catch (e) {
@@ -192,78 +202,63 @@ class LlamaProcess {
   }
 
   /// Parses llama-cli output to extract the response.
-  String _parseOutput(String output, String prompt) {
+  ///
+  /// The llama-cli output format is:
+  /// ```
+  /// [banner/metadata...]
+  /// > [user prompt]
+  ///
+  /// | [response text]
+  /// Exiting...
+  /// ```
+  String _parseOutput(String output) {
     final lines = output.split('\n');
     final responseLines = <String>[];
-    var foundPrompt = false;
-    var inResponse = false;
+    var foundPromptMarker = false;
 
     for (final line in lines) {
-      // Skip llama-cli UI elements and metadata
-      if (line.contains('▄▄') ||
-          line.contains('██') ||
-          line.contains('build') ||
-          line.contains('model') ||
-          line.contains('modalities') ||
-          line.contains('available commands') ||
-          line.contains('/exit') ||
-          line.contains('/regen') ||
-          line.contains('/clear') ||
-          line.contains('/read') ||
-          line.contains('llama_') ||
-          line.contains('ggml_') ||
-          line.contains('Prompt:') ||
-          line.contains('Generation:') ||
-          line.contains('Exiting') ||
-          line.contains('memory breakdown') ||
-          line.trim().startsWith('>')) {
-        // Mark that we've seen the prompt line
-        if (line.trim().startsWith('>')) {
-          foundPrompt = true;
-          inResponse = true;
-        }
+      // Look for the prompt marker line (starts with ">")
+      if (line.trim().startsWith('>')) {
+        foundPromptMarker = true;
         continue;
       }
 
-      // Skip empty lines at the start
-      if (!inResponse && line.trim().isEmpty) {
-        continue;
-      }
-
-      // After the prompt marker, capture response
-      if (foundPrompt || inResponse) {
-        // Check for end markers
-        if (line.isEmpty && responseLines.isNotEmpty) {
-          continue;
+      // After finding the prompt, look for response lines starting with "|"
+      if (foundPromptMarker) {
+        // Stop at "Exiting..." or metadata lines
+        if (line.trim() == 'Exiting...' ||
+            line.contains('llama_') ||
+            line.contains('ggml_')) {
+          break;
         }
-        responseLines.add(line);
-        inResponse = true;
+
+        // Response lines start with "| "
+        if (line.startsWith('| ')) {
+          responseLines.add(line.substring(2)); // Remove "| " prefix
+        } else if (line.startsWith('|')) {
+          // Handle case where there's no space after pipe
+          responseLines.add(line.substring(1).trimLeft());
+        } else if (responseLines.isNotEmpty && line.trim().isNotEmpty) {
+          // Continuation lines (multi-line responses)
+          responseLines.add(line);
+        }
       }
     }
 
     var response = responseLines.join('\n').trim();
 
-    // If we didn't find the prompt marker, try to extract response differently
-    if (response.isEmpty && output.isNotEmpty) {
-      // Look for response after the | character (llama output format)
-      final pipeIndex = output.indexOf('|');
-      if (pipeIndex != -1) {
-        final afterPipe = output.substring(pipeIndex + 1);
-        // Find the end (llama_ messages)
-        final endIndex = afterPipe.indexOf('llama_');
-        if (endIndex != -1) {
-          response = afterPipe.substring(0, endIndex).trim();
-        } else {
-          response = afterPipe.trim();
-        }
+    // Clean up any backspace sequences (spinner artifacts)
+    response = response.replaceAll(RegExp(r'[\b]'), '');
+
+    // If we still have no response, try a fallback approach
+    if (response.isEmpty) {
+      // Look for text between "| " and "Exiting" or "llama_"
+      final pipeMatch = RegExp(r'\|\s*(.+?)(?=Exiting|llama_|\n\n|$)', dotAll: true)
+          .firstMatch(output);
+      if (pipeMatch != null) {
+        response = pipeMatch.group(1)?.trim() ?? '';
       }
     }
-
-    // Clean up any remaining artifacts
-    response = response
-        .replaceAll(RegExp(r'\[\s*Prompt:.*?\]'), '')
-        .replaceAll(RegExp(r'\[\s*Generation:.*?\]'), '')
-        .trim();
 
     return response;
   }

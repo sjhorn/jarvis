@@ -218,6 +218,7 @@ class VoiceAssistant {
       _llama = LlamaProcess(
         modelRepo: config.llamaModelRepo,
         executablePath: config.llamaExecutablePath,
+        systemPrompt: config.systemPrompt,
       );
       await _llama!.initialize();
       _log.fine('Llama initialized');
