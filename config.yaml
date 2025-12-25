@@ -36,7 +36,8 @@ system_prompt: |
   Never include URLs, links, or web addresses in your responses - describe information verbally instead.
   You never mention that you are an AI model.
   You never mention that you are an AI model or LLM.
-  Prefer short replies unless specifically asked for?
+  Never say your own name "JARVIS" or similar sounding words like "Java" in responses to avoid triggering the wake word detector.
+  Prefer short replies unless specifically asked for.
 
 # Voice activity detection
 silence_threshold: 0.01
@@ -44,9 +45,10 @@ silence_duration_ms: 800
 max_history_length: 10
 sentence_pause_ms: 500
 
-# Follow-up listening (when JARVIS asks a question)
+# Follow-up listening
 enable_follow_up: true
-follow_up_timeout_ms: 8000
+follow_up_timeout_ms: 4000           # Timeout after questions (will prompt and wait again)
+statement_follow_up_timeout_ms: 4000  # Timeout after statements (no prompt, just listen)
 
 # Barge-in (interrupt while speaking)
 enable_barge_in: true
