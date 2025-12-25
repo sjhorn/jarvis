@@ -37,6 +37,9 @@ class AppConfig {
   final Duration silenceDuration;
   final int maxHistoryLength;
   final Duration sentencePause;
+  final bool enableFollowUp;
+  final Duration followUpTimeout;
+  final bool enableBargeIn;
 
   AppConfig({
     required this.whisperModelPath,
@@ -58,6 +61,9 @@ class AppConfig {
     this.silenceDuration = const Duration(milliseconds: 800),
     this.maxHistoryLength = 10,
     this.sentencePause = const Duration(milliseconds: 300),
+    this.enableFollowUp = true,
+    this.followUpTimeout = const Duration(seconds: 8),
+    this.enableBargeIn = true,
   });
 
   /// Converts to VoiceAssistantConfig for use with VoiceAssistant.
@@ -82,6 +88,9 @@ class AppConfig {
       silenceDuration: silenceDuration,
       maxHistoryLength: maxHistoryLength,
       sentencePause: sentencePause,
+      enableFollowUp: enableFollowUp,
+      followUpTimeout: followUpTimeout,
+      enableBargeIn: enableBargeIn,
     );
   }
 }
@@ -167,6 +176,11 @@ class ConfigLoader {
       sentencePause: Duration(
         milliseconds: _parseInt(environment['SENTENCE_PAUSE_MS'], 300),
       ),
+      enableFollowUp: _parseBool(environment['ENABLE_FOLLOW_UP'], true),
+      followUpTimeout: Duration(
+        milliseconds: _parseInt(environment['FOLLOW_UP_TIMEOUT_MS'], 8000),
+      ),
+      enableBargeIn: _parseBool(environment['ENABLE_BARGE_IN'], true),
     );
   }
 
@@ -219,6 +233,11 @@ class ConfigLoader {
         sentencePause: Duration(
           milliseconds: _parseYamlInt(yaml['sentence_pause_ms'], 300),
         ),
+        enableFollowUp: _parseYamlBool(yaml['enable_follow_up'], true),
+        followUpTimeout: Duration(
+          milliseconds: _parseYamlInt(yaml['follow_up_timeout_ms'], 8000),
+        ),
+        enableBargeIn: _parseYamlBool(yaml['enable_barge_in'], true),
       );
     } on YamlException catch (e) {
       throw ConfigException('Invalid YAML in config file', e);
@@ -235,6 +254,11 @@ class ConfigLoader {
     return int.tryParse(value) ?? defaultValue;
   }
 
+  static bool _parseBool(String? value, bool defaultValue) {
+    if (value == null || value.isEmpty) return defaultValue;
+    return value.toLowerCase() == 'true';
+  }
+
   static double _parseYamlDouble(Object? value, double defaultValue) {
     if (value == null) return defaultValue;
     if (value is double) return value;
@@ -247,6 +271,13 @@ class ConfigLoader {
     if (value == null) return defaultValue;
     if (value is int) return value;
     if (value is String) return int.tryParse(value) ?? defaultValue;
+    return defaultValue;
+  }
+
+  static bool _parseYamlBool(Object? value, bool defaultValue) {
+    if (value == null) return defaultValue;
+    if (value is bool) return value;
+    if (value is String) return value.toLowerCase() == 'true';
     return defaultValue;
   }
 }

@@ -201,4 +201,60 @@ Let me know if you need more info!
       expect(result.any((s) => s.contains('Use clear names')), isTrue);
     });
   });
+
+  group('TextProcessor endsWithQuestion()', () {
+    test('should return true for text ending with question mark', () {
+      expect(processor.endsWithQuestion('How are you?'), isTrue);
+    });
+
+    test('should return true for question with trailing whitespace', () {
+      expect(processor.endsWithQuestion('How are you?  '), isTrue);
+    });
+
+    test('should return false for text ending with period', () {
+      expect(processor.endsWithQuestion('Hello there.'), isFalse);
+    });
+
+    test('should return false for text ending with exclamation', () {
+      expect(processor.endsWithQuestion('Hello there!'), isFalse);
+    });
+
+    test('should return false for empty string', () {
+      expect(processor.endsWithQuestion(''), isFalse);
+    });
+
+    test('should return false for whitespace only', () {
+      expect(processor.endsWithQuestion('   '), isFalse);
+    });
+
+    test('should handle question in middle but not at end', () {
+      expect(processor.endsWithQuestion('How are you? I am fine.'), isFalse);
+    });
+  });
+
+  group('TextProcessor extractLastQuestion()', () {
+    test('should return last sentence if it is a question', () {
+      final sentences = ['Hello.', 'How are you?'];
+      expect(processor.extractLastQuestion(sentences), equals('How are you?'));
+    });
+
+    test('should return null if last sentence is not a question', () {
+      final sentences = ['How are you?', 'I am fine.'];
+      expect(processor.extractLastQuestion(sentences), isNull);
+    });
+
+    test('should return null for empty list', () {
+      expect(processor.extractLastQuestion([]), isNull);
+    });
+
+    test('should handle single question sentence', () {
+      final sentences = ['What is your name?'];
+      expect(processor.extractLastQuestion(sentences), equals('What is your name?'));
+    });
+
+    test('should handle whitespace in last sentence', () {
+      final sentences = ['Hello.', 'How are you?  '];
+      expect(processor.extractLastQuestion(sentences), equals('How are you?'));
+    });
+  });
 }

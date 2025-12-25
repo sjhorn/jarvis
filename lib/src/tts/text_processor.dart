@@ -208,4 +208,18 @@ class TextProcessor {
     final cleaned = clean(text);
     return splitSentences(cleaned);
   }
+
+  /// Returns true if the text ends with a question mark.
+  bool endsWithQuestion(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    return trimmed.endsWith('?');
+  }
+
+  /// Extracts the last sentence if it is a question, otherwise returns null.
+  String? extractLastQuestion(List<String> sentences) {
+    if (sentences.isEmpty) return null;
+    final last = sentences.last.trim();
+    return last.endsWith('?') ? last : null;
+  }
 }

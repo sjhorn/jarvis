@@ -42,5 +42,11 @@ system_prompt: |
 silence_threshold: 0.01
 silence_duration_ms: 800
 max_history_length: 10
-
 sentence_pause_ms: 500
+
+# Follow-up listening (when JARVIS asks a question)
+enable_follow_up: true
+follow_up_timeout_ms: 8000
+
+# Barge-in (interrupt while speaking)
+enable_barge_in: true

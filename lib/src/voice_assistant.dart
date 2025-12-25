@@ -36,6 +36,8 @@ enum AssistantState {
   listening,
   processing,
   speaking,
+  awaitingFollowUp,
+  prompting,
   error,
 }
 
@@ -72,6 +74,13 @@ class VoiceAssistantConfig {
   final int maxHistoryLength;
   final Duration sentencePause;
 
+  // Follow-up settings
+  final bool enableFollowUp;
+  final Duration followUpTimeout;
+
+  // Barge-in settings
+  final bool enableBargeIn;
+
   VoiceAssistantConfig({
     required this.whisperModelPath,
     required this.whisperExecutablePath,
@@ -92,6 +101,9 @@ class VoiceAssistantConfig {
     this.silenceDuration = const Duration(milliseconds: 800),
     this.maxHistoryLength = 10,
     this.sentencePause = const Duration(milliseconds: 300),
+    this.enableFollowUp = true,
+    this.followUpTimeout = const Duration(seconds: 8),
+    this.enableBargeIn = true,
   });
 }
 
@@ -142,6 +154,14 @@ class VoiceAssistant {
   StreamSubscription? _audioSubscription;
   StreamSubscription? _wakeWordSubscription;
   StreamSubscription? _vadSubscription;
+
+  // Follow-up state
+  Timer? _followUpTimer;
+  String? _lastQuestion;
+  int _promptCount = 0;
+
+  // Barge-in state
+  bool _bargeInRequested = false;
 
   VoiceAssistant({required this.config}) {
     _context = ConversationContext(
@@ -314,6 +334,19 @@ class VoiceAssistant {
         _audioBuffer.addAll(chunk);
         break;
 
+      case AssistantState.awaitingFollowUp:
+        // Feed audio to VAD to detect if user starts speaking
+        _vad?.processAudio(chunk);
+        break;
+
+      case AssistantState.speaking:
+      case AssistantState.prompting:
+        // Feed audio to wake word detector for barge-in detection
+        if (config.enableBargeIn) {
+          _wakeWordDetector?.processAudio(chunk);
+        }
+        break;
+
       default:
         // Ignore audio in other states
         break;
@@ -322,6 +355,16 @@ class VoiceAssistant {
 
   /// Handles wake word detection.
   Future<void> _onWakeWord(WakeWordEvent event) async {
+    // Handle barge-in during speaking or prompting
+    if (_currentState == AssistantState.speaking ||
+        _currentState == AssistantState.prompting) {
+      if (config.enableBargeIn) {
+        _log.info('Barge-in detected: "${event.keyword}"');
+        await _handleBargeIn();
+      }
+      return;
+    }
+
     if (_currentState != AssistantState.listeningForWakeWord) return;
 
     _log.info('Wake word detected: "${event.keyword}"');
@@ -343,13 +386,112 @@ class VoiceAssistant {
     _vad?.reset();
   }
 
+  /// Handles barge-in (user interrupts while speaking).
+  Future<void> _handleBargeIn() async {
+    _bargeInRequested = true;
+    _cancelFollowUpTimer();
+
+    // Stop any playing audio
+    await _audioOutput?.stop();
+
+    _log.info('Barge-in: transitioning to listening');
+
+    // Play brief acknowledgment
+    if (_acknowledgmentPlayer != null && _acknowledgmentPlayer!.hasAcknowledgments) {
+      await _acknowledgmentPlayer!.playRandom();
+    }
+
+    // Transition to listening state
+    _setState(AssistantState.listening);
+    _audioBuffer.clear();
+    _vad?.reset();
+    _bargeInRequested = false;
+  }
+
   /// Handles VAD events.
   Future<void> _onVadEvent(VADEvent event) async {
+    // Handle VAD in awaitingFollowUp state
+    if (_currentState == AssistantState.awaitingFollowUp) {
+      if (event.state == VADState.speech) {
+        // User started speaking, transition to listening
+        _log.info('Speech detected during follow-up, transitioning to listening');
+        _cancelFollowUpTimer();
+        _setState(AssistantState.listening);
+        _audioBuffer.clear();
+        _vad?.reset();
+      }
+      return;
+    }
+
     if (_currentState != AssistantState.listening) return;
 
     if (event.state == VADState.silence) {
       // User stopped speaking, process the audio
       await _processUserSpeech();
+    }
+  }
+
+  /// Starts the follow-up timeout timer.
+  void _startFollowUpTimer() {
+    _cancelFollowUpTimer();
+    _followUpTimer = Timer(config.followUpTimeout, _onFollowUpTimeout);
+  }
+
+  /// Cancels the follow-up timeout timer.
+  void _cancelFollowUpTimer() {
+    _followUpTimer?.cancel();
+    _followUpTimer = null;
+  }
+
+  /// Handles follow-up timeout.
+  Future<void> _onFollowUpTimeout() async {
+    if (_currentState != AssistantState.awaitingFollowUp) return;
+
+    if (_promptCount == 0 && _lastQuestion != null) {
+      // First timeout: repeat the question
+      _log.info('Follow-up timeout, repeating question');
+      _promptCount++;
+      await _speakPrompt(_lastQuestion!);
+    } else {
+      // Second timeout or no question: give up, return to wake word
+      _log.info('No follow-up response, returning to wake word detection');
+      _lastQuestion = null;
+      _promptCount = 0;
+      _setState(AssistantState.listeningForWakeWord);
+    }
+  }
+
+  /// Speaks a prompt and returns to awaitingFollowUp.
+  Future<void> _speakPrompt(String text) async {
+    _setState(AssistantState.prompting);
+
+    try {
+      final sentences = _textProcessor.process(text);
+      for (var i = 0; i < sentences.length; i++) {
+        // Check for barge-in
+        if (_bargeInRequested) {
+          _log.fine('Barge-in during prompting, stopping');
+          return;
+        }
+
+        final sentence = sentences[i];
+        _log.fine('Prompting: "$sentence"');
+        final ttsResult = await _tts!.synthesize(sentence);
+        final pcmAudio = ttsResult.toPcm16();
+        await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
+
+        if (i < sentences.length - 1 && config.sentencePause.inMilliseconds > 0) {
+          await Future<void>.delayed(config.sentencePause);
+        }
+      }
+
+      // Return to awaiting follow-up
+      _setState(AssistantState.awaitingFollowUp);
+      _vad?.reset();
+      _startFollowUpTimer();
+    } catch (e, stackTrace) {
+      _log.severe('Error speaking prompt', e, stackTrace);
+      _setState(AssistantState.listeningForWakeWord);
     }
   }
 
@@ -402,6 +544,12 @@ class VoiceAssistant {
       _log.fine('Split response into ${sentences.length} sentences');
 
       for (var i = 0; i < sentences.length; i++) {
+        // Check for barge-in before each sentence
+        if (_bargeInRequested) {
+          _log.fine('Barge-in during speaking, stopping');
+          return;
+        }
+
         final sentence = sentences[i];
         _log.fine('Synthesizing sentence ${i + 1}/${sentences.length}: "$sentence"');
         final ttsResult = await _tts!.synthesize(sentence);
@@ -415,9 +563,21 @@ class VoiceAssistant {
         }
       }
 
-      _log.fine('Response complete, returning to wake word detection');
-      // Return to listening for wake word
-      _setState(AssistantState.listeningForWakeWord);
+      // Check if response ends with a question and follow-up is enabled
+      final lastQuestion = _textProcessor.extractLastQuestion(sentences);
+      if (lastQuestion != null && config.enableFollowUp) {
+        _log.info('Response ends with question, awaiting follow-up');
+        _lastQuestion = lastQuestion;
+        _promptCount = 0;
+        _setState(AssistantState.awaitingFollowUp);
+        _vad?.reset();
+        _startFollowUpTimer();
+      } else {
+        _log.fine('Response complete, returning to wake word detection');
+        _lastQuestion = null;
+        _promptCount = 0;
+        _setState(AssistantState.listeningForWakeWord);
+      }
     } catch (e, stackTrace) {
       _log.severe('Error processing speech', e, stackTrace);
       _setState(AssistantState.error);
@@ -439,6 +599,9 @@ class VoiceAssistant {
 
     _isRunning = false;
 
+    // Cancel timers
+    _cancelFollowUpTimer();
+
     // Cancel subscriptions
     await _audioSubscription?.cancel();
     await _wakeWordSubscription?.cancel();
@@ -459,6 +622,8 @@ class VoiceAssistant {
     } catch (_) {}
 
     _audioBuffer.clear();
+    _lastQuestion = null;
+    _promptCount = 0;
     _setState(AssistantState.idle);
   }
 
