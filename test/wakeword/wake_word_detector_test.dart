@@ -394,6 +394,71 @@ void main() {
         await detector.dispose();
       }
     });
+
+    test(
+      'should detect JARVIS wake word from recorded audio',
+      () async {
+        if (nativeLibPath == null || !modelExists) {
+          markTestSkipped('KWS models or native library not available');
+          return;
+        }
+
+        // Check for test wav file with jarvis recordings
+        const testWavPath = 'test/test_wavs/jarvis_wake_word_16k.wav';
+        if (!File(testWavPath).existsSync()) {
+          markTestSkipped('Jarvis test WAV file not available');
+          return;
+        }
+
+        final detector = WakeWordDetector(
+          encoderPath: '$modelDir/encoder-epoch-12-avg-2-chunk-16-left-64.onnx',
+          decoderPath: '$modelDir/decoder-epoch-12-avg-2-chunk-16-left-64.onnx',
+          joinerPath: '$modelDir/joiner-epoch-12-avg-2-chunk-16-left-64.onnx',
+          tokensPath: '$modelDir/tokens.txt',
+          keywordsFile: '$modelDir/keywords.txt',
+          nativeLibPath: nativeLibPath,
+        );
+
+        try {
+          await detector.initialize();
+
+          final events = <WakeWordEvent>[];
+          final subscription = detector.detections.listen((event) {
+            print('Detected: ${event.keyword}');
+            events.add(event);
+          });
+
+          // Load test audio (16kHz mono WAV)
+          final audioBytes = await File(testWavPath).readAsBytes();
+          // Skip WAV header (44 bytes)
+          final audioData = audioBytes.sublist(44);
+
+          print('Processing ${audioData.length} bytes of audio...');
+
+          // Process audio in chunks
+          const chunkSize = 3200; // 100ms at 16kHz, 16-bit
+          for (var i = 0; i < audioData.length; i += chunkSize) {
+            final end = (i + chunkSize).clamp(0, audioData.length);
+            final chunk = Uint8List.fromList(audioData.sublist(i, end));
+            detector.processAudio(chunk);
+          }
+
+          // Give time for processing
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+
+          await subscription.cancel();
+
+          print('Total detections: ${events.length}');
+
+          // Should detect at least one wake word (recording has 6 "jarvis")
+          expect(events, isNotEmpty,
+              reason: 'Should detect JARVIS wake word from recording');
+        } finally {
+          await detector.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
   });
 }
 

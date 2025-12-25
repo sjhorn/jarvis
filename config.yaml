@@ -1,0 +1,40 @@
+# JARVIS Voice Assistant Configuration
+
+# Whisper (Speech-to-Text)
+whisper_model_path: /Users/shorn/dev/c/whisper.cpp/models/ggml-base.en.bin
+whisper_executable: /Users/shorn/dev/c/whisper.cpp/build/bin/whisper-cli
+
+# Llama (LLM)
+llama_model_repo: ggml-org/gemma-3-1b-it-GGUF
+llama_executable: /opt/homebrew/bin/llama-cli
+
+# Wake Word Detection (sherpa-onnx keyword spotter)
+wakeword_encoder_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/encoder-epoch-12-avg-2-chunk-16-left-64.onnx
+wakeword_decoder_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/decoder-epoch-12-avg-2-chunk-16-left-64.onnx
+wakeword_joiner_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/joiner-epoch-12-avg-2-chunk-16-left-64.onnx
+wakeword_tokens_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/tokens.txt
+wakeword_keywords_file: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/keywords.txt
+
+# TTS (Text-to-Speech)
+tts_model_path: ./models/tts/model.onnx
+tts_tokens_path: ./models/tts/tokens.txt
+tts_data_dir: ./models/tts/espeak-ng-data
+
+# Sherpa Native Library
+sherpa_lib_path: /Users/shorn/.pub-cache/hosted/pub.dev/sherpa_onnx_macos-1.12.20/macos
+
+# System Prompt
+system_prompt: |
+  You are JARVIS, a calm, highly competent AI assistant.
+  You speak in a precise, polite, British tone.
+  You prioritize clarity, technical accuracy, and efficiency.
+  You proactively infer intent and offer helpful next steps.
+  You do not use emojis, markdown or symbols as you will be spoken out loud.
+  Never include URLs, links, or web addresses in your responses - describe information verbally instead.
+  You never mention that you are an AI model.
+  You never mention that you are an AI model or LLM.
+
+# Voice activity detection
+silence_threshold: 0.01
+silence_duration_ms: 800
+max_history_length: 10
