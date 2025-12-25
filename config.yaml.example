@@ -1,0 +1,72 @@
+# JARVIS Voice Assistant Configuration
+# Copy this file to config.yaml and update paths for your system.
+
+# =============================================================================
+# Whisper (Speech-to-Text)
+# =============================================================================
+# Path to Whisper model file (e.g., ggml-base.en.bin, ggml-small.bin)
+whisper_model_path: /Users/shorn/dev/c/whisper.cpp/models/ggml-base.en.bin
+
+# Path to whisper-cli executable
+whisper_executable: /Users/shorn/dev/c/whisper.cpp/build/bin/whisper-cli
+
+# =============================================================================
+# Llama (LLM)
+# =============================================================================
+# Hugging Face model repository (downloaded automatically by llama-cli)
+llama_model_repo: ggml-org/gemma-3-1b-it-GGUF
+
+# Path to llama-cli executable (installed via Homebrew)
+llama_executable: /opt/homebrew/bin/llama-cli
+
+# =============================================================================
+# Wake Word Detection (sherpa-onnx keyword spotter)
+# =============================================================================
+# Download models from: https://github.com/k2-fsa/sherpa-onnx/releases
+# Look for sherpa-onnx-kws-* packages
+
+wakeword_encoder_path: ./models/wakeword/encoder.onnx
+wakeword_decoder_path: ./models/wakeword/decoder.onnx
+wakeword_joiner_path: ./models/wakeword/joiner.onnx
+wakeword_tokens_path: ./models/wakeword/tokens.txt
+
+# Keywords file with wake words (one per line, format: keyword @threshold)
+# Example content:
+#   hey jarvis @0.5
+#   jarvis @0.5
+wakeword_keywords_file: ./models/wakeword/keywords.txt
+
+# =============================================================================
+# TTS (Text-to-Speech via sherpa-onnx)
+# =============================================================================
+# Download VITS models from: https://github.com/k2-fsa/sherpa-onnx/releases
+# Look for vits-* packages
+
+tts_model_path: ./models/tts/model.onnx
+tts_tokens_path: ./models/tts/tokens.txt
+tts_data_dir: ./models/tts/espeak-ng-data
+
+# =============================================================================
+# Sherpa Native Library
+# =============================================================================
+# Path to sherpa-onnx native library directory
+# The sherpa_onnx Dart package typically handles this, but specify if needed
+sherpa_lib_path: ./native/lib
+
+# =============================================================================
+# Optional Settings
+# =============================================================================
+
+# System prompt for the LLM (defines JARVIS personality)
+system_prompt: |
+  You are JARVIS, an advanced AI assistant inspired by the AI from Iron Man.
+  You are helpful, witty, and occasionally sarcastic but always respectful.
+  Keep your responses concise and conversational since they will be spoken aloud.
+  When appropriate, address the user as "sir" or "ma'am".
+
+# Voice activity detection settings
+silence_threshold: 0.01       # Audio level below this is considered silence (0.0-1.0)
+silence_duration_ms: 800      # Milliseconds of silence before processing speech
+
+# Conversation history
+max_history_length: 10        # Number of conversation turns to remember
