@@ -2,6 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:logging/logging.dart';
+
+import '../logging.dart';
+
+final _log = Logger(Loggers.audioOutput);
+
 /// Exception thrown by AudioOutput operations.
 class AudioOutputException implements Exception {
   final String message;
@@ -79,10 +85,11 @@ class AudioOutput {
       final tempDir = await Directory.systemTemp.createTemp('audio_output_');
       final tempFile = File('${tempDir.path}/audio.raw');
       await tempFile.writeAsBytes(audioData);
+      _log.fine('Wrote ${audioData.length} bytes to ${tempFile.path}');
 
       // Play using sox play command
       // Format: play -t raw -b 16 -e signed -r <rate> -c 1 audio.raw
-      _playProcess = await Process.start(executablePath, [
+      final args = [
         '-q', // Quiet mode
         '-t', 'raw', // Input format raw
         '-b', bitsPerSample.toString(), // Bits per sample
@@ -90,12 +97,24 @@ class AudioOutput {
         '-r', rate.toString(), // Sample rate
         '-c', channels.toString(), // Channels
         tempFile.path,
-      ]);
+      ];
+      _log.fine('Starting: $executablePath ${args.join(' ')}');
 
+      _playProcess = await Process.start(executablePath, args);
       _isPlaying = true;
+      _log.fine('Play process started (pid: ${_playProcess!.pid})');
+
+      // Capture any stderr for debugging
+      _playProcess!.stderr.listen((data) {
+        final msg = String.fromCharCodes(data).trim();
+        if (msg.isNotEmpty) {
+          _log.warning('sox stderr: $msg');
+        }
+      });
 
       // Wait for playback to complete
       final exitCode = await _playProcess!.exitCode;
+      _log.fine('Play process exited with code: $exitCode');
       _isPlaying = false;
       _playProcess = null;
 
