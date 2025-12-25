@@ -360,8 +360,8 @@ class VoiceAssistant {
       _log.fine('Synthesizing speech...');
       final ttsResult = await _tts!.synthesize(response);
       final pcmAudio = ttsResult.toPcm16();
-      _log.fine('Playing audio (${pcmAudio.length} bytes)...');
-      await _audioOutput!.play(pcmAudio);
+      _log.fine('Playing audio (${pcmAudio.length} bytes at ${ttsResult.sampleRate}Hz)...');
+      await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
 
       _log.fine('Response complete, returning to wake word detection');
       // Return to listening for wake word

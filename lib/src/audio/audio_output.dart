@@ -54,7 +54,11 @@ class AudioOutput {
   }
 
   /// Plays raw audio data.
-  Future<void> play(Uint8List audioData) async {
+  ///
+  /// If [audioSampleRate] is provided, it overrides the default sample rate.
+  /// This is useful when playing audio from TTS which may use a different
+  /// sample rate (e.g., 22050Hz) than the default (16000Hz).
+  Future<void> play(Uint8List audioData, {int? audioSampleRate}) async {
     if (audioData.isEmpty) {
       throw AudioOutputException('Audio data is empty');
     }
@@ -68,6 +72,8 @@ class AudioOutput {
       await stop();
     }
 
+    final rate = audioSampleRate ?? sampleRate;
+
     try {
       // Write audio data to temp file
       final tempDir = await Directory.systemTemp.createTemp('audio_output_');
@@ -75,13 +81,13 @@ class AudioOutput {
       await tempFile.writeAsBytes(audioData);
 
       // Play using sox play command
-      // Format: play -t raw -b 16 -e signed -r 16000 -c 1 audio.raw
+      // Format: play -t raw -b 16 -e signed -r <rate> -c 1 audio.raw
       _playProcess = await Process.start(executablePath, [
         '-q', // Quiet mode
         '-t', 'raw', // Input format raw
         '-b', bitsPerSample.toString(), // Bits per sample
         '-e', 'signed', // Signed encoding
-        '-r', sampleRate.toString(), // Sample rate
+        '-r', rate.toString(), // Sample rate
         '-c', channels.toString(), // Channels
         tempFile.path,
       ]);
