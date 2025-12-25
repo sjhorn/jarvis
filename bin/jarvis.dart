@@ -122,10 +122,12 @@ Future<void> main(List<String> arguments) async {
     ttsTokensPath: config.ttsTokensPath,
     ttsDataDir: config.ttsDataDir,
     sherpaLibPath: config.sherpaLibPath,
+    acknowledgmentDir: config.acknowledgmentDir,
     systemPrompt: config.systemPrompt ?? defaultSystemPrompt,
     silenceThreshold: config.silenceThreshold,
     silenceDuration: config.silenceDuration,
     maxHistoryLength: config.maxHistoryLength,
+    sentencePause: config.sentencePause,
   );
 
   // Create voice assistant

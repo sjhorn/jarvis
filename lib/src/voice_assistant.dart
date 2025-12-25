@@ -3,12 +3,14 @@ import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 
+import 'audio/acknowledgment_player.dart';
 import 'audio/audio_input.dart';
 import 'audio/audio_output.dart';
 import 'context/conversation_context.dart';
 import 'llm/llama_process.dart';
 import 'logging.dart';
 import 'stt/whisper_process.dart';
+import 'tts/text_processor.dart';
 import 'tts/tts_manager.dart';
 import 'vad/voice_activity_detector.dart';
 import 'wakeword/wake_word_detector.dart';
@@ -63,10 +65,12 @@ class VoiceAssistantConfig {
   final String sherpaLibPath;
 
   // Optional settings
+  final String? acknowledgmentDir;
   final String? systemPrompt;
   final double silenceThreshold;
   final Duration silenceDuration;
   final int maxHistoryLength;
+  final Duration sentencePause;
 
   VoiceAssistantConfig({
     required this.whisperModelPath,
@@ -82,10 +86,12 @@ class VoiceAssistantConfig {
     required this.ttsTokensPath,
     required this.ttsDataDir,
     required this.sherpaLibPath,
+    this.acknowledgmentDir,
     this.systemPrompt,
     this.silenceThreshold = 0.01,
     this.silenceDuration = const Duration(milliseconds: 800),
     this.maxHistoryLength = 10,
+    this.sentencePause = const Duration(milliseconds: 300),
   });
 }
 
@@ -121,9 +127,13 @@ class VoiceAssistant {
   WhisperProcess? _whisper;
   LlamaProcess? _llama;
   TtsManager? _tts;
+  AcknowledgmentPlayer? _acknowledgmentPlayer;
 
   // Conversation context
   late final ConversationContext _context;
+
+  // Text processor for TTS
+  final _textProcessor = TextProcessor();
 
   // Audio buffer for recording
   final List<int> _audioBuffer = [];
@@ -234,6 +244,23 @@ class VoiceAssistant {
       await _tts!.initialize();
       _log.fine('TTS initialized');
 
+      // Initialize acknowledgment player (optional)
+      _log.info('Acknowledgment dir config: ${config.acknowledgmentDir}');
+      if (config.acknowledgmentDir != null) {
+        _log.info('Initializing acknowledgment player...');
+        _acknowledgmentPlayer = AcknowledgmentPlayer(
+          audioDirectory: config.acknowledgmentDir!,
+          audioOutput: _audioOutput!,
+        );
+        await _acknowledgmentPlayer!.initialize();
+        _log.info(
+          'Acknowledgment player initialized '
+          '(${_acknowledgmentPlayer!.count} audio files)',
+        );
+      } else {
+        _log.info('No acknowledgment directory configured');
+      }
+
       _isInitialized = true;
       _log.info('Voice assistant initialization complete');
     } catch (e, stackTrace) {
@@ -262,8 +289,10 @@ class VoiceAssistant {
     // Set up audio processing pipeline
     _audioSubscription = _audioInput!.audioStream.listen(_processAudioChunk);
 
-    // Set up wake word detection
-    _wakeWordSubscription = _wakeWordDetector!.detections.listen(_onWakeWord);
+    // Set up wake word detection (wrap async handler properly)
+    _wakeWordSubscription = _wakeWordDetector!.detections.listen((event) async {
+      await _onWakeWord(event);
+    });
 
     // Set up VAD events
     _vadSubscription = _vad!.events.listen(_onVadEvent);
@@ -292,10 +321,21 @@ class VoiceAssistant {
   }
 
   /// Handles wake word detection.
-  void _onWakeWord(WakeWordEvent event) {
+  Future<void> _onWakeWord(WakeWordEvent event) async {
     if (_currentState != AssistantState.listeningForWakeWord) return;
 
     _log.info('Wake word detected: "${event.keyword}"');
+
+    // Play acknowledgment if available
+    if (_acknowledgmentPlayer != null && _acknowledgmentPlayer!.hasAcknowledgments) {
+      _log.info('Playing acknowledgment...');
+      await _acknowledgmentPlayer!.playRandom();
+      _log.info('Acknowledgment playback complete');
+    } else {
+      _log.info('No acknowledgment player available '
+          '(player: ${_acknowledgmentPlayer != null}, '
+          'hasAck: ${_acknowledgmentPlayer?.hasAcknowledgments})');
+    }
 
     // Transition to listening state
     _setState(AssistantState.listening);
@@ -356,13 +396,24 @@ class VoiceAssistant {
       _context.addAssistantMessage(response);
       _responseController.add(response);
 
-      // Speak response
+      // Speak response sentence by sentence
       _setState(AssistantState.speaking);
-      _log.fine('Synthesizing speech...');
-      final ttsResult = await _tts!.synthesize(response);
-      final pcmAudio = ttsResult.toPcm16();
-      _log.fine('Playing audio (${pcmAudio.length} bytes at ${ttsResult.sampleRate}Hz)...');
-      await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
+      final sentences = _textProcessor.process(response);
+      _log.fine('Split response into ${sentences.length} sentences');
+
+      for (var i = 0; i < sentences.length; i++) {
+        final sentence = sentences[i];
+        _log.fine('Synthesizing sentence ${i + 1}/${sentences.length}: "$sentence"');
+        final ttsResult = await _tts!.synthesize(sentence);
+        final pcmAudio = ttsResult.toPcm16();
+        _log.fine('Playing audio (${pcmAudio.length} bytes at ${ttsResult.sampleRate}Hz)...');
+        await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
+
+        // Add pause between sentences (but not after the last one)
+        if (i < sentences.length - 1 && config.sentencePause.inMilliseconds > 0) {
+          await Future<void>.delayed(config.sentencePause);
+        }
+      }
 
       _log.fine('Response complete, returning to wake word detection');
       // Return to listening for wake word
@@ -439,6 +490,7 @@ class VoiceAssistant {
     await _whisper?.dispose();
     await _llama?.dispose();
     await _tts?.dispose();
+    await _acknowledgmentPlayer?.dispose();
 
     _audioInput = null;
     _audioOutput = null;
@@ -447,6 +499,7 @@ class VoiceAssistant {
     _whisper = null;
     _llama = null;
     _tts = null;
+    _acknowledgmentPlayer = null;
 
     _isInitialized = false;
   }

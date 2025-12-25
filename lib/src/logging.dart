@@ -117,6 +117,7 @@ class LogConfig {
 class Loggers {
   static const String root = 'jarvis';
   static const String voiceAssistant = 'jarvis.assistant';
+  static const String audio = 'jarvis.audio';
   static const String audioInput = 'jarvis.audio.input';
   static const String audioOutput = 'jarvis.audio.output';
   static const String whisper = 'jarvis.whisper';

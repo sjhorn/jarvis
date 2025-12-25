@@ -31,10 +31,12 @@ class AppConfig {
   final String ttsTokensPath;
   final String ttsDataDir;
   final String sherpaLibPath;
+  final String? acknowledgmentDir;
   final String? systemPrompt;
   final double silenceThreshold;
   final Duration silenceDuration;
   final int maxHistoryLength;
+  final Duration sentencePause;
 
   AppConfig({
     required this.whisperModelPath,
@@ -50,10 +52,12 @@ class AppConfig {
     required this.ttsTokensPath,
     required this.ttsDataDir,
     required this.sherpaLibPath,
+    this.acknowledgmentDir,
     this.systemPrompt,
     this.silenceThreshold = 0.01,
     this.silenceDuration = const Duration(milliseconds: 800),
     this.maxHistoryLength = 10,
+    this.sentencePause = const Duration(milliseconds: 300),
   });
 
   /// Converts to VoiceAssistantConfig for use with VoiceAssistant.
@@ -72,10 +76,12 @@ class AppConfig {
       ttsTokensPath: ttsTokensPath,
       ttsDataDir: ttsDataDir,
       sherpaLibPath: sherpaLibPath,
+      acknowledgmentDir: acknowledgmentDir,
       systemPrompt: systemPrompt,
       silenceThreshold: silenceThreshold,
       silenceDuration: silenceDuration,
       maxHistoryLength: maxHistoryLength,
+      sentencePause: sentencePause,
     );
   }
 }
@@ -151,12 +157,16 @@ class ConfigLoader {
       ttsTokensPath: environment['TTS_TOKENS_PATH']!,
       ttsDataDir: environment['TTS_DATA_DIR']!,
       sherpaLibPath: environment['SHERPA_LIB_PATH']!,
+      acknowledgmentDir: environment['ACKNOWLEDGMENT_DIR'],
       systemPrompt: environment['SYSTEM_PROMPT'],
       silenceThreshold: _parseDouble(environment['SILENCE_THRESHOLD'], 0.01),
       silenceDuration: Duration(
         milliseconds: _parseInt(environment['SILENCE_DURATION_MS'], 800),
       ),
       maxHistoryLength: _parseInt(environment['MAX_HISTORY_LENGTH'], 10),
+      sentencePause: Duration(
+        milliseconds: _parseInt(environment['SENTENCE_PAUSE_MS'], 300),
+      ),
     );
   }
 
@@ -199,12 +209,16 @@ class ConfigLoader {
         ttsTokensPath: yaml['tts_tokens_path'] as String,
         ttsDataDir: yaml['tts_data_dir'] as String,
         sherpaLibPath: yaml['sherpa_lib_path'] as String,
+        acknowledgmentDir: yaml['acknowledgment_dir'] as String?,
         systemPrompt: yaml['system_prompt'] as String?,
         silenceThreshold: _parseYamlDouble(yaml['silence_threshold'], 0.01),
         silenceDuration: Duration(
           milliseconds: _parseYamlInt(yaml['silence_duration_ms'], 800),
         ),
         maxHistoryLength: _parseYamlInt(yaml['max_history_length'], 10),
+        sentencePause: Duration(
+          milliseconds: _parseYamlInt(yaml['sentence_pause_ms'], 300),
+        ),
       );
     } on YamlException catch (e) {
       throw ConfigException('Invalid YAML in config file', e);
