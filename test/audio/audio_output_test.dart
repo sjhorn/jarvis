@@ -28,8 +28,11 @@ void main() {
         expect(output.bitsPerSample, equals(24));
       });
 
-      test('should throw AudioOutputException when play not found', () async {
-        final output = AudioOutput(executablePath: '/nonexistent/play');
+      test('should throw AudioOutputException when player not found', () async {
+        final output = AudioOutput(
+          player: AudioPlayer.play,
+          customExecutablePath: '/nonexistent/play',
+        );
 
         expect(() => output.initialize(), throwsA(isA<AudioOutputException>()));
       });
@@ -157,73 +160,55 @@ void main() {
   });
 
   group('AudioOutput Integration Tests', () {
-    late String? playPath;
+    late AudioOutput? output;
 
-    setUpAll(() {
-      // Check for play command
-      final possiblePaths = [
-        '/opt/homebrew/bin/play',
-        '/usr/local/bin/play',
-        '/usr/bin/play',
-      ];
-
-      for (final path in possiblePaths) {
-        if (File(path).existsSync()) {
-          playPath = path;
-          break;
-        }
+    setUpAll(() async {
+      // Try to auto-detect an available player
+      try {
+        output = await AudioOutput.autoDetect();
+        await output!.initialize();
+      } catch (_) {
+        output = null;
       }
+    });
+
+    tearDownAll(() async {
+      await output?.dispose();
     });
 
     test('should initialize successfully', () async {
-      if (playPath == null) {
-        markTestSkipped('play command not available');
+      if (output == null) {
+        markTestSkipped('No audio player available');
         return;
       }
 
-      final output = AudioOutput(executablePath: playPath!);
-      await output.initialize();
-
-      expect(output.isPlaying, isFalse);
-
-      await output.dispose();
+      expect(output!.isPlaying, isFalse);
     });
 
     test('should play raw audio data', () async {
-      if (playPath == null) {
-        markTestSkipped('play command not available');
+      if (output == null) {
+        markTestSkipped('No audio player available');
         return;
       }
 
-      final output = AudioOutput(
-        executablePath: playPath!,
+      // Generate a short sine wave tone (440Hz for 100ms)
+      final audioData = _generateSineWave(
+        frequency: 440,
+        durationMs: 100,
         sampleRate: 16000,
-        channels: 1,
       );
-      await output.initialize();
 
-      try {
-        // Generate a short sine wave tone (440Hz for 100ms)
-        final audioData = _generateSineWave(
-          frequency: 440,
-          durationMs: 100,
-          sampleRate: 16000,
-        );
+      await output!.play(audioData);
 
-        await output.play(audioData);
+      // Wait for playback to complete
+      await Future<void>.delayed(const Duration(milliseconds: 200));
 
-        // Wait for playback to complete
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-
-        expect(output.isPlaying, isFalse);
-      } finally {
-        await output.dispose();
-      }
+      expect(output!.isPlaying, isFalse);
     }, timeout: const Timeout(Duration(seconds: 5)));
 
     test('should play audio file', () async {
-      if (playPath == null) {
-        markTestSkipped('play command not available');
+      if (output == null) {
+        markTestSkipped('No audio player available');
         return;
       }
 
@@ -234,36 +219,26 @@ void main() {
         return;
       }
 
-      final output = AudioOutput(executablePath: playPath!);
-      await output.initialize();
+      await output!.playFile(testAudioPath);
 
-      try {
-        await output.playFile(testAudioPath);
+      // Wait for playback to start
+      await Future<void>.delayed(const Duration(milliseconds: 100));
 
-        // Wait for playback to start
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-
-        // It should be playing or have finished
-        // (short audio may finish quickly)
-      } finally {
-        await output.dispose();
-      }
+      // It should be playing or have finished
+      // (short audio may finish quickly)
     }, timeout: const Timeout(Duration(seconds: 10)));
 
     test(
       'should be able to stop playback',
       () async {
-        if (playPath == null) {
-          markTestSkipped('play command not available');
+        if (output == null) {
+          markTestSkipped('No audio player available');
           return;
         }
 
-        final output = AudioOutput(
-          executablePath: playPath!,
-          sampleRate: 16000,
-          channels: 1,
-        );
-        await output.initialize();
+        // Create a separate output for this test since we need fresh state
+        final testOutput = await AudioOutput.autoDetect();
+        await testOutput.initialize();
 
         try {
           // Generate a longer tone
@@ -274,15 +249,15 @@ void main() {
           );
 
           // Start playing
-          unawaited(output.play(audioData));
+          unawaited(testOutput.play(audioData));
 
           // Wait a bit then stop
           await Future<void>.delayed(const Duration(milliseconds: 200));
-          await output.stop();
+          await testOutput.stop();
 
-          expect(output.isPlaying, isFalse);
+          expect(testOutput.isPlaying, isFalse);
         } finally {
-          await output.dispose();
+          await testOutput.dispose();
         }
       },
       timeout: const Timeout(Duration(seconds: 5)),

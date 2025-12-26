@@ -84,6 +84,10 @@ class VoiceAssistantConfig {
   final bool enableBargeIn;
   final String? bargeInDir;
 
+  // Audio playback settings
+  final AudioPlayer? audioPlayer;  // null = auto-detect
+  final String? audioPlayerPath;   // custom executable path
+
   // Session recording settings
   final bool recordingEnabled;
   final String sessionDir;
@@ -113,6 +117,8 @@ class VoiceAssistantConfig {
     this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
     this.bargeInDir,
+    this.audioPlayer,
+    this.audioPlayerPath,
     this.recordingEnabled = false,
     this.sessionDir = './sessions',
   });
@@ -231,7 +237,16 @@ class VoiceAssistant {
 
       // Initialize audio output
       _log.fine('Initializing audio output...');
-      _audioOutput = AudioOutput();
+      if (config.audioPlayer != null) {
+        // Use configured player
+        _audioOutput = AudioOutput(
+          player: config.audioPlayer!,
+          customExecutablePath: config.audioPlayerPath,
+        );
+      } else {
+        // Auto-detect best player for platform
+        _audioOutput = await AudioOutput.autoDetect();
+      }
       await _audioOutput!.initialize();
       _log.fine('Audio output initialized');
 

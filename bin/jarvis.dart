@@ -151,6 +151,8 @@ Future<void> main(List<String> arguments) async {
     statementFollowUpTimeout: config.statementFollowUpTimeout,
     enableBargeIn: config.enableBargeIn,
     bargeInDir: config.bargeInDir,
+    audioPlayer: config.audioPlayer,
+    audioPlayerPath: config.audioPlayerPath,
     recordingEnabled: effectiveRecordingEnabled,
     sessionDir: effectiveSessionDir,
   );

@@ -8,6 +8,15 @@ import '../logging.dart';
 
 final _log = Logger(Loggers.audioOutput);
 
+/// Supported audio players.
+enum AudioPlayer {
+  afplay,  // macOS (built-in)
+  play,    // sox (cross-platform)
+  mpv,     // mpv (cross-platform)
+  ffplay,  // ffmpeg (cross-platform)
+  aplay,   // ALSA (Linux)
+}
+
 /// Exception thrown by AudioOutput operations.
 class AudioOutputException implements Exception {
   final String message;
@@ -20,42 +29,139 @@ class AudioOutputException implements Exception {
       'AudioOutputException: $message${cause != null ? ' ($cause)' : ''}';
 }
 
-/// Plays audio through speakers using afplay (CoreAudio).
+/// Plays audio through speakers using configurable audio player.
 class AudioOutput {
   final int sampleRate;
   final int channels;
   final int bitsPerSample;
-  final String executablePath;
+  final AudioPlayer player;
+  final String? customExecutablePath;
 
   bool _initialized = false;
   bool _disposed = false;
   bool _isPlaying = false;
   Process? _playProcess;
+  String? _resolvedExecutable;
 
   AudioOutput({
     this.sampleRate = 16000,
     this.channels = 1,
     this.bitsPerSample = 16,
-    this.executablePath = '/usr/bin/afplay',
+    this.player = AudioPlayer.afplay,
+    this.customExecutablePath,
   });
+
+  /// Creates AudioOutput with auto-detected player for current platform.
+  static Future<AudioOutput> autoDetect({
+    int sampleRate = 16000,
+    int channels = 1,
+    int bitsPerSample = 16,
+  }) async {
+    final player = await _detectAvailablePlayer();
+    _log.info('Auto-detected audio player: ${player.name}');
+    return AudioOutput(
+      sampleRate: sampleRate,
+      channels: channels,
+      bitsPerSample: bitsPerSample,
+      player: player,
+    );
+  }
+
+  /// Detects the best available audio player for current platform.
+  static Future<AudioPlayer> _detectAvailablePlayer() async {
+    // Platform-preferred order
+    final List<AudioPlayer> candidates;
+    if (Platform.isMacOS) {
+      candidates = [AudioPlayer.afplay, AudioPlayer.play, AudioPlayer.mpv, AudioPlayer.ffplay];
+    } else if (Platform.isLinux) {
+      candidates = [AudioPlayer.play, AudioPlayer.aplay, AudioPlayer.mpv, AudioPlayer.ffplay];
+    } else if (Platform.isWindows) {
+      candidates = [AudioPlayer.ffplay, AudioPlayer.mpv, AudioPlayer.play];
+    } else {
+      candidates = AudioPlayer.values;
+    }
+
+    for (final player in candidates) {
+      final executable = _getDefaultExecutable(player);
+      if (await _isExecutableAvailable(executable)) {
+        return player;
+      }
+    }
+
+    // Fallback to afplay (will fail on non-macOS but gives clear error)
+    return AudioPlayer.afplay;
+  }
+
+  /// Checks if an executable is available in PATH or as absolute path.
+  static Future<bool> _isExecutableAvailable(String executable) async {
+    try {
+      final result = await Process.run(
+        Platform.isWindows ? 'where' : 'which',
+        [executable],
+      );
+      return result.exitCode == 0;
+    } catch (_) {
+      // Try as absolute path
+      return File(executable).existsSync();
+    }
+  }
+
+  /// Gets the default executable path for a player.
+  static String _getDefaultExecutable(AudioPlayer player) {
+    switch (player) {
+      case AudioPlayer.afplay:
+        return Platform.isMacOS ? '/usr/bin/afplay' : 'afplay';
+      case AudioPlayer.play:
+        return 'play';
+      case AudioPlayer.mpv:
+        return 'mpv';
+      case AudioPlayer.ffplay:
+        return 'ffplay';
+      case AudioPlayer.aplay:
+        return 'aplay';
+    }
+  }
+
+  /// Gets command arguments for playing a file with the configured player.
+  List<String> _getPlayArgs(String filePath) {
+    switch (player) {
+      case AudioPlayer.afplay:
+        return [filePath];
+      case AudioPlayer.play:
+        return ['-q', filePath];  // -q for quiet (no progress)
+      case AudioPlayer.mpv:
+        return ['--no-video', '--really-quiet', filePath];
+      case AudioPlayer.ffplay:
+        return ['-nodisp', '-autoexit', '-loglevel', 'quiet', filePath];
+      case AudioPlayer.aplay:
+        return ['-q', filePath];  // -q for quiet
+    }
+  }
 
   /// Whether currently playing.
   bool get isPlaying => _isPlaying;
 
-  /// Initializes the audio output by verifying play command exists.
+  /// The resolved executable path being used.
+  String? get executablePath => _resolvedExecutable;
+
+  /// Initializes the audio output by verifying player is available.
   Future<void> initialize() async {
     if (_disposed) {
       throw AudioOutputException('AudioOutput has been disposed');
     }
 
-    // Check play executable exists
-    final executableFile = File(executablePath);
-    if (!await executableFile.exists()) {
+    // Resolve executable path
+    _resolvedExecutable = customExecutablePath ?? _getDefaultExecutable(player);
+
+    // Check executable is available
+    if (!await _isExecutableAvailable(_resolvedExecutable!)) {
       throw AudioOutputException(
-        'play executable not found at: $executablePath',
+        'Audio player not found: $_resolvedExecutable (${player.name}). '
+        'Install it or configure a different audio_player in config.yaml',
       );
     }
 
+    _log.info('Using audio player: ${player.name} ($_resolvedExecutable)');
     _initialized = true;
   }
 
@@ -81,7 +187,7 @@ class AudioOutput {
     final rate = audioSampleRate ?? sampleRate;
 
     try {
-      // Convert PCM to WAV format for afplay
+      // Convert PCM to WAV format
       final wavData = _pcmToWav(audioData, rate, channels, bitsPerSample);
 
       // Write WAV to temp file
@@ -90,24 +196,25 @@ class AudioOutput {
       await tempFile.writeAsBytes(wavData);
       _log.fine('Wrote ${wavData.length} bytes WAV to ${tempFile.path}');
 
-      // Play using afplay (CoreAudio - waits for buffer completion)
-      _log.fine('Starting: $executablePath ${tempFile.path}');
+      // Play using configured player
+      final args = _getPlayArgs(tempFile.path);
+      _log.fine('Starting: $_resolvedExecutable ${args.join(' ')}');
 
-      _playProcess = await Process.start(executablePath, [tempFile.path]);
+      _playProcess = await Process.start(_resolvedExecutable!, args);
       _isPlaying = true;
-      _log.fine('afplay process started (pid: ${_playProcess!.pid})');
+      _log.fine('${player.name} process started (pid: ${_playProcess!.pid})');
 
       // Capture any stderr for debugging
       _playProcess!.stderr.listen((data) {
         final msg = String.fromCharCodes(data).trim();
         if (msg.isNotEmpty) {
-          _log.warning('afplay stderr: $msg');
+          _log.warning('${player.name} stderr: $msg');
         }
       });
 
-      // Wait for playback to complete (afplay waits for CoreAudio buffer)
+      // Wait for playback to complete
       final exitCode = await _playProcess!.exitCode;
-      _log.fine('afplay process exited with code: $exitCode');
+      _log.fine('${player.name} process exited with code: $exitCode');
       _isPlaying = false;
       _playProcess = null;
 
@@ -121,7 +228,7 @@ class AudioOutput {
       if (exitCode != 0 && exitCode != -15 && exitCode != -9) {
         // -15 is SIGTERM, -9 is SIGKILL - expected when we stop playback
         throw AudioOutputException(
-          'afplay command failed with exit code $exitCode',
+          '${player.name} command failed with exit code $exitCode',
         );
       }
     } on ProcessException catch (e) {
@@ -197,9 +304,10 @@ class AudioOutput {
     }
 
     try {
-      // Play file using afplay (CoreAudio - waits for buffer completion)
-      _log.fine('Playing file: $filePath');
-      _playProcess = await Process.start(executablePath, [filePath]);
+      // Play file using configured player
+      final args = _getPlayArgs(filePath);
+      _log.fine('Playing file: $_resolvedExecutable ${args.join(' ')}');
+      _playProcess = await Process.start(_resolvedExecutable!, args);
 
       _isPlaying = true;
 
@@ -210,7 +318,7 @@ class AudioOutput {
 
       if (exitCode != 0 && exitCode != -15 && exitCode != -9) {
         throw AudioOutputException(
-          'afplay command failed with exit code $exitCode',
+          '${player.name} command failed with exit code $exitCode',
         );
       }
     } on ProcessException catch (e) {

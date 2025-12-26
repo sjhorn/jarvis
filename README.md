@@ -179,7 +179,22 @@ statement_follow_up_timeout_ms: 4000
 
 # Barge-in
 enable_barge_in: true
+
+# Audio Playback (optional - auto-detects if not specified)
+audio_player: auto           # auto, afplay, play, mpv, ffplay, aplay
+audio_player_path: /usr/bin/afplay  # optional custom path
 ```
+
+### Audio Player Options
+
+| Player | Platforms | Notes |
+|--------|-----------|-------|
+| `auto` | All | Auto-detect best available (default) |
+| `afplay` | macOS | Built-in CoreAudio player |
+| `play` | All | Sox audio player |
+| `mpv` | All | Multimedia player |
+| `ffplay` | All | FFmpeg player |
+| `aplay` | Linux | ALSA player |
 
 ## Usage
 

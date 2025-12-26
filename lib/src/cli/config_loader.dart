@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
+import '../audio/audio_output.dart';
 import '../voice_assistant.dart';
 
 /// Exception thrown when configuration loading fails.
@@ -43,6 +44,10 @@ class AppConfig {
   final bool enableBargeIn;
   final String? bargeInDir;
 
+  // Audio playback
+  final AudioPlayer? audioPlayer;  // null = auto-detect
+  final String? audioPlayerPath;   // custom executable path
+
   // Session recording
   final bool recordingEnabled;
   final String sessionDir;
@@ -72,6 +77,8 @@ class AppConfig {
     this.statementFollowUpTimeout = const Duration(seconds: 4),
     this.enableBargeIn = true,
     this.bargeInDir,
+    this.audioPlayer,
+    this.audioPlayerPath,
     this.recordingEnabled = false,
     this.sessionDir = './sessions',
   });
@@ -103,6 +110,8 @@ class AppConfig {
       statementFollowUpTimeout: statementFollowUpTimeout,
       enableBargeIn: enableBargeIn,
       bargeInDir: bargeInDir,
+      audioPlayer: audioPlayer,
+      audioPlayerPath: audioPlayerPath,
       recordingEnabled: recordingEnabled,
       sessionDir: sessionDir,
     );
@@ -199,6 +208,8 @@ class ConfigLoader {
       ),
       enableBargeIn: _parseBool(environment['ENABLE_BARGE_IN'], true),
       bargeInDir: environment['BARGE_IN_DIR'],
+      audioPlayer: _parseAudioPlayer(environment['AUDIO_PLAYER']),
+      audioPlayerPath: environment['AUDIO_PLAYER_PATH'],
       recordingEnabled: _parseBool(environment['RECORDING_ENABLED'], false),
       sessionDir: environment['SESSION_DIR'] ?? './sessions',
     );
@@ -262,6 +273,8 @@ class ConfigLoader {
         ),
         enableBargeIn: _parseYamlBool(yaml['enable_barge_in'], true),
         bargeInDir: yaml['barge_in_dir'] as String?,
+        audioPlayer: _parseAudioPlayer(yaml['audio_player'] as String?),
+        audioPlayerPath: yaml['audio_player_path'] as String?,
         recordingEnabled: _parseYamlBool(yaml['recording_enabled'], false),
         sessionDir: (yaml['session_dir'] as String?) ?? './sessions',
       );
@@ -305,5 +318,30 @@ class ConfigLoader {
     if (value is bool) return value;
     if (value is String) return value.toLowerCase() == 'true';
     return defaultValue;
+  }
+
+  /// Parses audio player from string value.
+  /// Returns null for auto-detection if value is null, empty, or "auto".
+  static AudioPlayer? _parseAudioPlayer(String? value) {
+    if (value == null || value.isEmpty || value.toLowerCase() == 'auto') {
+      return null;  // Auto-detect
+    }
+    switch (value.toLowerCase()) {
+      case 'afplay':
+        return AudioPlayer.afplay;
+      case 'play':
+        return AudioPlayer.play;
+      case 'mpv':
+        return AudioPlayer.mpv;
+      case 'ffplay':
+        return AudioPlayer.ffplay;
+      case 'aplay':
+        return AudioPlayer.aplay;
+      default:
+        throw ConfigException(
+          'Invalid audio_player value: $value. '
+          'Valid options: auto, afplay, play, mpv, ffplay, aplay',
+        );
+    }
   }
 }
