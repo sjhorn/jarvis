@@ -16,6 +16,10 @@ final _log = Logger(Loggers.modelDownloader);
 
 /// Downloads and sets up ML models for JARVIS.
 class ModelDownloader {
+  /// Whisper model URL (base.en - good balance of speed and accuracy).
+  static const whisperModelUrl =
+      'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
+
   /// KWS model archive URL.
   static const kwsModelUrl =
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/'
@@ -51,8 +55,27 @@ class ModelDownloader {
   Future<void> downloadAll() async {
     await Directory(modelsDir).create(recursive: true);
 
+    await downloadWhisperModel();
     await downloadKwsModel();
     await downloadTtsModel();
+  }
+
+  /// Downloads the Whisper speech-to-text model.
+  Future<void> downloadWhisperModel() async {
+    final whisperDir = '$modelsDir/whisper';
+    final modelPath = '$whisperDir/ggml-base.en.bin';
+
+    // Check if already downloaded
+    if (await File(modelPath).exists()) {
+      _progress('Whisper model already downloaded');
+      return;
+    }
+
+    await Directory(whisperDir).create(recursive: true);
+
+    _progress('Downloading Whisper model (base.en, ~142MB)...');
+    await _downloadFile(whisperModelUrl, modelPath);
+    _progress('Whisper model ready');
   }
 
   /// Downloads the keyword spotting model.
@@ -226,6 +249,7 @@ class ModelDownloader {
 
   /// Checks if all models are downloaded.
   Future<bool> hasAllModels() async {
+    final whisperModel = File('$modelsDir/whisper/ggml-base.en.bin');
     final kwsModel = File(
       '$modelsDir/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/'
       'encoder-epoch-12-avg-2-chunk-16-left-64.onnx',
@@ -234,7 +258,8 @@ class ModelDownloader {
     final tokens = File('$modelsDir/tts/tokens.txt');
     final espeakData = Directory('$modelsDir/tts/espeak-ng-data');
 
-    return await kwsModel.exists() &&
+    return await whisperModel.exists() &&
+        await kwsModel.exists() &&
         await ttsModel.exists() &&
         await tokens.exists() &&
         await espeakData.exists();
@@ -242,11 +267,13 @@ class ModelDownloader {
 
   /// Gets model paths for configuration.
   Map<String, String> getModelPaths() {
+    final whisperDir = '$modelsDir/whisper';
     final kwsDir =
         '$modelsDir/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01';
     final ttsDir = '$modelsDir/tts';
 
     return {
+      'whisper_model_path': '$whisperDir/ggml-base.en.bin',
       'wakeword_encoder_path':
           '$kwsDir/encoder-epoch-12-avg-2-chunk-16-left-64.onnx',
       'wakeword_decoder_path':
