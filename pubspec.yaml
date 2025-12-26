@@ -1,6 +1,6 @@
 name: jarvis_dart
 description: A Dart-based voice assistant application inspired by JARVIS from Iron Man.
-version: 1.0.2
+version: 1.0.3
 repository: https://github.com/sjhorn/jarvis
 homepage: https://github.com/sjhorn/jarvis
 
