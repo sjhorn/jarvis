@@ -34,11 +34,68 @@ dart run bin/jarvis.dart --config config.yaml
 
 ### System Dependencies
 
-| Dependency | Installation | Purpose |
-|------------|--------------|---------|
-| sox | `brew install sox` | Audio recording |
-| whisper.cpp | [Build from source](https://github.com/ggerganov/whisper.cpp) | Speech-to-text |
-| llama.cpp | `brew install llama.cpp` | LLM inference |
+#### Dart SDK
+
+| Platform | Installation |
+|----------|--------------|
+| macOS | `brew install dart` |
+| Linux | See [Dart install docs](https://dart.dev/get-dart) |
+| Windows | `choco install dart-sdk` or `winget install Dart.Dart-SDK` |
+
+#### Sox (Audio Recording)
+
+| Platform | Installation |
+|----------|--------------|
+| macOS | `brew install sox` |
+| Ubuntu/Debian | `sudo apt install sox` |
+| Fedora | `sudo dnf install sox` |
+| Arch | `sudo pacman -S sox` |
+| Windows | Download from [SourceForge](https://sourceforge.net/projects/sox/) |
+
+#### whisper.cpp (Speech-to-Text)
+
+Build from source on all platforms:
+
+```bash
+git clone https://github.com/ggerganov/whisper.cpp
+cd whisper.cpp
+cmake -B build
+cmake --build build --config Release
+
+# Download a model
+./models/download-ggml-model.sh base.en
+```
+
+The executable will be at `build/bin/whisper-cli` (or `build/bin/Release/whisper-cli.exe` on Windows).
+
+#### llama.cpp (LLM Inference)
+
+| Platform | Installation |
+|----------|--------------|
+| macOS | `brew install llama.cpp` |
+| Linux/Windows | Build from source (see below) |
+
+**Build from source:**
+
+```bash
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+cmake -B build
+cmake --build build --config Release
+```
+
+The executable will be at `build/bin/llama-cli` (or `build/bin/Release/llama-cli.exe` on Windows).
+
+#### Platform-Specific Notes
+
+**macOS**: Uses `afplay` for audio playback (built-in).
+
+**Linux**: Requires a command-line audio player. Install one of:
+- `sudo apt install sox` (uses `play` command)
+- `sudo apt install ffmpeg` (uses `ffplay`)
+- `sudo apt install mpv`
+
+**Windows**: Audio playback uses PowerShell's built-in capabilities.
 
 ### Models Required
 
