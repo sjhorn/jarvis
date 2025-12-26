@@ -9,7 +9,7 @@ import 'package:jarvis_dart/src/voice_assistant.dart';
 import 'package:logging/logging.dart';
 
 /// JARVIS version
-const version = '1.0.3';
+const version = '1.0.4';
 
 /// Default JARVIS system prompt.
 const defaultSystemPrompt = '''

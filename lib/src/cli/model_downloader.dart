@@ -113,6 +113,7 @@ class ModelDownloader {
     final configPath = '$ttsDir/model.onnx.json';
     final tokensPath = '$ttsDir/tokens.txt';
     final espeakDir = '$ttsDir/espeak-ng-data';
+    final metadataMarker = '$ttsDir/.metadata_added';
 
     // Download model if not exists
     if (!await File(modelPath).exists()) {
@@ -126,6 +127,14 @@ class ModelDownloader {
     if (!await File(configPath).exists()) {
       _progress('Downloading TTS config...');
       await _downloadFile(ttsConfigUrl, configPath);
+    }
+
+    // Add ONNX metadata using Python (required for sherpa-onnx)
+    if (!await File(metadataMarker).exists()) {
+      _progress('Adding ONNX metadata (requires Python)...');
+      await _addOnnxMetadata(ttsDir, modelPath, configPath);
+      // Create marker file to indicate metadata has been added
+      await File(metadataMarker).writeAsString('done');
     }
 
     // Generate tokens.txt from config
@@ -245,6 +254,133 @@ class ModelDownloader {
 
     await File(tokensPath).writeAsString(buffer.toString());
     _log.fine('Generated tokens.txt');
+  }
+
+  /// Adds required metadata to the TTS ONNX model using Python.
+  ///
+  /// sherpa-onnx requires specific metadata in the ONNX model file.
+  /// This creates a Python venv, installs onnx, and runs a script.
+  Future<void> _addOnnxMetadata(
+    String ttsDir,
+    String modelPath,
+    String configPath,
+  ) async {
+    // Find Python 3
+    final python = await _findPython();
+    if (python == null) {
+      throw ModelDownloadException(
+        'Python 3 not found. Please install Python 3.8+ to continue.\n'
+        'macOS: brew install python3\n'
+        'Linux: sudo apt install python3 python3-venv',
+      );
+    }
+    _log.fine('Found Python: $python');
+
+    final venvDir = '$ttsDir/venv';
+    final venvPython = Platform.isWindows
+        ? '$venvDir/Scripts/python.exe'
+        : '$venvDir/bin/python';
+    final venvPip = Platform.isWindows
+        ? '$venvDir/Scripts/pip.exe'
+        : '$venvDir/bin/pip';
+
+    // Create venv if not exists
+    if (!await Directory(venvDir).exists()) {
+      _progress('  Creating Python virtual environment...');
+      final result = await Process.run(python, ['-m', 'venv', venvDir]);
+      if (result.exitCode != 0) {
+        throw ModelDownloadException(
+          'Failed to create venv: ${result.stderr}',
+        );
+      }
+    }
+
+    // Install onnx if not already installed
+    _progress('  Installing onnx package...');
+    final pipResult = await Process.run(
+      venvPip,
+      ['install', '--quiet', 'onnx'],
+    );
+    if (pipResult.exitCode != 0) {
+      throw ModelDownloadException(
+        'Failed to install onnx: ${pipResult.stderr}',
+      );
+    }
+
+    // Python script to add metadata
+    final pythonScript = '''
+import json
+import onnx
+
+model_path = "$modelPath"
+config_path = "$configPath"
+
+# Load config
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+# Load and modify ONNX model
+model = onnx.load(model_path)
+
+# Add sherpa-onnx required metadata
+metadata = {
+    "model_type": "vits",
+    "comment": "piper",
+    "language": config["language"]["name_english"],
+    "voice": config["espeak"]["voice"],
+    "has_espeak": "1",
+    "n_speakers": str(config["num_speakers"]),
+    "sample_rate": str(config["audio"]["sample_rate"]),
+}
+
+for key, value in metadata.items():
+    meta = model.metadata_props.add()
+    meta.key = key
+    meta.value = value
+
+# Save modified model
+onnx.save(model, model_path)
+print("Metadata added successfully")
+''';
+
+    // Write and run script
+    final scriptPath = '$ttsDir/add_metadata.py';
+    await File(scriptPath).writeAsString(pythonScript);
+
+    _progress('  Adding metadata to ONNX model...');
+    final scriptResult = await Process.run(venvPython, [scriptPath]);
+    if (scriptResult.exitCode != 0) {
+      throw ModelDownloadException(
+        'Failed to add metadata: ${scriptResult.stderr}',
+      );
+    }
+    _log.fine('ONNX metadata added: ${scriptResult.stdout}');
+
+    // Clean up script
+    await File(scriptPath).delete();
+  }
+
+  /// Finds Python 3 executable.
+  Future<String?> _findPython() async {
+    final candidates = Platform.isWindows
+        ? ['python', 'python3', 'py']
+        : ['python3', 'python'];
+
+    for (final name in candidates) {
+      try {
+        final result = await Process.run(name, ['--version']);
+        if (result.exitCode == 0) {
+          final version = result.stdout.toString();
+          // Ensure it's Python 3
+          if (version.contains('Python 3')) {
+            return name;
+          }
+        }
+      } catch (_) {
+        // Not found, try next
+      }
+    }
+    return null;
   }
 
   /// Checks if all models are downloaded.
