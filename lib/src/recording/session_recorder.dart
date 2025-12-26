@@ -200,7 +200,7 @@ class SessionRecorder {
 
       _log.info(
         'Session recording finalized: $sessionId '
-        '(${_audioCounter} utterances, ${sessionDuration.inSeconds}s)',
+        '($_audioCounter utterances, ${sessionDuration.inSeconds}s)',
       );
     } catch (e, stackTrace) {
       _log.warning('Failed to finalize session', e, stackTrace);

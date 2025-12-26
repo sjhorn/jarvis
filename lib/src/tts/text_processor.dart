@@ -5,27 +5,6 @@
 /// - Removing symbols that don't speak well
 /// - Splitting text into sentences
 class TextProcessor {
-  /// Characters/patterns that should be removed completely.
-  static final _removePatterns = [
-    // Markdown formatting
-    RegExp(r'\*\*\*(.+?)\*\*\*'), // Bold+italic ***text***
-    RegExp(r'\*\*(.+?)\*\*'), // Bold **text**
-    RegExp(r'\*(.+?)\*'), // Italic *text*
-    RegExp(r'__(.+?)__'), // Bold __text__
-    RegExp(r'_(.+?)_'), // Italic _text_
-    RegExp(r'~~(.+?)~~'), // Strikethrough ~~text~~
-    RegExp(r'`(.+?)`'), // Inline code `text`
-    RegExp(r'```[\s\S]*?```'), // Code blocks
-    RegExp(r'^#{1,6}\s+', multiLine: true), // Headers
-    RegExp(r'^\s*[-*+]\s+', multiLine: true), // Bullet points
-    RegExp(r'^\s*\d+\.\s+', multiLine: true), // Numbered lists
-    RegExp(r'\[([^\]]+)\]\([^)]+\)'), // Links [text](url)
-    RegExp(r'!\[([^\]]*)\]\([^)]+\)'), // Images ![alt](url)
-    RegExp(r'^\s*>\s*', multiLine: true), // Block quotes
-    RegExp(r'\|.*\|', multiLine: true), // Tables
-    RegExp(r'^-{3,}$', multiLine: true), // Horizontal rules
-  ];
-
   /// Patterns for markdown that should keep the text content.
   static final _keepTextPatterns = [
     RegExp(r'\*\*\*(.+?)\*\*\*'), // Bold+italic
