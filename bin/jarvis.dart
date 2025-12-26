@@ -9,7 +9,7 @@ import 'package:jarvis_dart/src/voice_assistant.dart';
 import 'package:logging/logging.dart';
 
 /// JARVIS version
-const version = '1.0.1';
+const version = '1.0.2';
 
 /// Default JARVIS system prompt.
 const defaultSystemPrompt = '''
@@ -185,11 +185,31 @@ ${bargeInDir != null ? 'barge_in_dir: $bargeInDir' : '# barge_in_dir: bundled  #
   print('');
 }
 
+/// Gets the platform-specific sherpa_onnx package name prefix.
+String _getSherpaPackagePrefix() {
+  if (Platform.isMacOS) return 'sherpa_onnx_macos';
+  if (Platform.isLinux) return 'sherpa_onnx_linux';
+  if (Platform.isWindows) return 'sherpa_onnx_windows';
+  // iOS and Android would use different mechanisms
+  return 'sherpa_onnx';
+}
+
+/// Gets the platform-specific subdirectory name for native libs.
+String _getSherpaPlatformDir() {
+  if (Platform.isMacOS) return 'macos';
+  if (Platform.isLinux) return 'linux';
+  if (Platform.isWindows) return 'windows';
+  return '';
+}
+
 /// Attempts to auto-detect sherpa-onnx library in pub cache.
 Future<String?> _detectSherpaLib() async {
   final home = Platform.environment['HOME'] ??
       Platform.environment['USERPROFILE'] ??
       '.';
+
+  final packagePrefix = _getSherpaPackagePrefix();
+  final platformDir = _getSherpaPlatformDir();
 
   // Check pub cache locations
   final cacheLocations = [
@@ -197,22 +217,35 @@ Future<String?> _detectSherpaLib() async {
     '$home/.pub-cache/hosted/pub.dartlang.org',
   ];
 
+  // Find the latest version of the platform-specific package
+  String? latestPath;
+  String? latestVersion;
+
   for (final cacheDir in cacheLocations) {
     final dir = Directory(cacheDir);
     if (!await dir.exists()) continue;
 
     await for (final entity in dir.list()) {
-      if (entity is Directory && entity.path.contains('sherpa_onnx')) {
-        // Look for the native lib inside
-        final libDir = Directory('${entity.path}/lib');
-        if (await libDir.exists()) {
-          return libDir.path;
+      if (entity is Directory) {
+        final name = entity.path.split('/').last;
+        // Match pattern like sherpa_onnx_macos-1.12.20
+        if (name.startsWith('$packagePrefix-')) {
+          final version = name.substring(packagePrefix.length + 1);
+          // Simple version comparison (works for semantic versioning)
+          if (latestVersion == null || version.compareTo(latestVersion) > 0) {
+            // Check if the platform directory exists
+            final libDir = Directory('${entity.path}/$platformDir');
+            if (await libDir.exists()) {
+              latestVersion = version;
+              latestPath = libDir.path;
+            }
+          }
         }
       }
     }
   }
 
-  return null;
+  return latestPath;
 }
 
 Future<void> main(List<String> arguments) async {
