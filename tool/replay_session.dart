@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/recording/wav_writer.dart';
-import 'package:jarvis/src/stt/whisper_process.dart';
+import 'package:jarvis_dart/src/recording/wav_writer.dart';
+import 'package:jarvis_dart/src/stt/whisper_process.dart';
 
 /// Replays a recorded session for debugging and verification.
 ///

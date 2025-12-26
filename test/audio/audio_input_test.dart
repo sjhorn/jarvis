@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/audio/audio_input.dart';
+import 'package:jarvis_dart/src/audio/audio_input.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/tts/tts_manager.dart';
+import 'package:jarvis_dart/src/tts/tts_manager.dart';
 import 'package:test/test.dart';
 
 void main() {

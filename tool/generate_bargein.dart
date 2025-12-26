@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:jarvis/src/cli/config_loader.dart';
-import 'package:jarvis/src/tts/tts_manager.dart';
+import 'package:jarvis_dart/src/cli/config_loader.dart';
+import 'package:jarvis_dart/src/tts/tts_manager.dart';
 
 /// Generates barge-in acknowledgment audio files.
 Future<void> main(List<String> args) async {

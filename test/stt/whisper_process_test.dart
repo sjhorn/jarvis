@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/stt/whisper_process.dart';
+import 'package:jarvis_dart/src/stt/whisper_process.dart';
 import 'package:test/test.dart';
 
 void main() {

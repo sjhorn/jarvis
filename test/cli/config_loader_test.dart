@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:jarvis/src/cli/config_loader.dart';
+import 'package:jarvis_dart/src/cli/config_loader.dart';
 import 'package:test/test.dart';
 
 void main() {

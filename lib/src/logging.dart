@@ -127,4 +127,6 @@ class Loggers {
   static const String tts = 'jarvis.tts';
   static const String config = 'jarvis.config';
   static const String recording = 'jarvis.recording';
+  static const String packageAssets = 'jarvis.assets';
+  static const String modelDownloader = 'jarvis.downloader';
 }

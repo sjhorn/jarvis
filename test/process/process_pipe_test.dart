@@ -1,4 +1,4 @@
-import 'package:jarvis/src/process/process_pipe.dart';
+import 'package:jarvis_dart/src/process/process_pipe.dart';
 import 'package:test/test.dart';
 
 void main() {

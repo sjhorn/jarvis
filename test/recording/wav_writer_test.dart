@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:jarvis/src/recording/wav_writer.dart';
+import 'package:jarvis_dart/src/recording/wav_writer.dart';
 import 'package:test/test.dart';
 
 void main() {

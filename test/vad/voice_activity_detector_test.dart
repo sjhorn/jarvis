@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/vad/voice_activity_detector.dart';
+import 'package:jarvis_dart/src/vad/voice_activity_detector.dart';
 import 'package:test/test.dart';
 
 void main() {

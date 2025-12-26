@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/recording/session_recorder.dart';
+import 'package:jarvis_dart/src/recording/session_recorder.dart';
 import 'package:test/test.dart';
 
 void main() {

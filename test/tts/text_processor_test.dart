@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:jarvis/src/tts/text_processor.dart';
+import 'package:jarvis_dart/src/tts/text_processor.dart';
 
 void main() {
   late TextProcessor processor;

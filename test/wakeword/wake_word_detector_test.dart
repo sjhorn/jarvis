@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/wakeword/wake_word_detector.dart';
+import 'package:jarvis_dart/src/wakeword/wake_word_detector.dart';
 import 'package:test/test.dart';
 
 void main() {

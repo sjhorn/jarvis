@@ -14,11 +14,31 @@ A Dart-based voice assistant inspired by JARVIS from Iron Man. Say "JARVIS" to w
 - **Session Recording** - Record sessions for debugging and analysis
 - **Audio Acknowledgments** - Plays audio feedback when activated
 
-## Quick Start
+## Installation
+
+### Option 1: Global Install (Recommended)
+
+Install JARVIS globally as a CLI tool:
+
+```bash
+# Install globally from pub.dev
+dart pub global activate jarvis_dart
+
+# Run first-time setup (downloads ~150MB models)
+jarvis setup
+
+# Edit configuration (set whisper/llama paths)
+vim ~/.jarvis/config.yaml
+
+# Run JARVIS
+jarvis
+```
+
+### Option 2: From Source
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/jarvis.git
+git clone https://github.com/sjhorn/jarvis.git
 cd jarvis
 dart pub get
 
@@ -28,6 +48,15 @@ vim config.yaml
 
 # Run
 dart run bin/jarvis.dart --config config.yaml
+```
+
+### CLI Commands
+
+```bash
+jarvis              # Run the voice assistant
+jarvis setup        # Download models and create config
+jarvis version      # Show version
+jarvis --help       # Show help
 ```
 
 ## Requirements

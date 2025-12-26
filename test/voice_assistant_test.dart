@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:jarvis/src/voice_assistant.dart';
+import 'package:jarvis_dart/src/voice_assistant.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,9 +1,9 @@
 /// Quick test for acknowledgment playback.
 import 'dart:io';
 
-import 'package:jarvis/src/audio/acknowledgment_player.dart';
-import 'package:jarvis/src/audio/audio_output.dart';
-import 'package:jarvis/src/cli/config_loader.dart';
+import 'package:jarvis_dart/src/audio/acknowledgment_player.dart';
+import 'package:jarvis_dart/src/audio/audio_output.dart';
+import 'package:jarvis_dart/src/cli/config_loader.dart';
 
 Future<void> main() async {
   print('Testing acknowledgment playback...\n');

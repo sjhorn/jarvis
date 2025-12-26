@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:jarvis/src/recording/session_event.dart';
+import 'package:jarvis_dart/src/recording/session_event.dart';
 import 'package:test/test.dart';
 
 void main() {

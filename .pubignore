@@ -1,0 +1,24 @@
+# Exclude large model files from publishing
+models/
+
+# Exclude development tools
+tool/
+
+# Exclude native libraries (users install separately)
+native/
+
+# Exclude session recordings
+sessions/
+
+# Exclude Claude AI files
+.claude/
+
+# Exclude local config
+config.yaml
+
+# Exclude test fixtures that are large
+test/test_wavs/
+
+# Exclude git files
+.git/
+.gitignore

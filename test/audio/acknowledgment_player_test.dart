@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:jarvis/src/audio/acknowledgment_player.dart';
-import 'package:jarvis/src/audio/audio_output.dart';
+import 'package:jarvis_dart/src/audio/acknowledgment_player.dart';
+import 'package:jarvis_dart/src/audio/audio_output.dart';
 
 class MockAudioOutput extends Mock implements AudioOutput {}
 

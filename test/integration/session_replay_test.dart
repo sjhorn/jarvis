@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:jarvis/src/recording/wav_writer.dart';
+import 'package:jarvis_dart/src/recording/wav_writer.dart';
 import 'package:test/test.dart';
 
 /// Integration tests that replay recorded sessions to verify behavior.

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:jarvis/src/llm/llama_process.dart';
+import 'package:jarvis_dart/src/llm/llama_process.dart';
 import 'package:test/test.dart';
 
 void main() {
