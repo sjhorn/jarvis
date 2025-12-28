@@ -1,4 +1,6 @@
 /// Quick test for acknowledgment playback.
+library;
+
 import 'dart:io';
 
 import 'package:jarvis_dart/src/audio/acknowledgment_player.dart';

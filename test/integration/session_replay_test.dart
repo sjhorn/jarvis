@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:jarvis_dart/src/recording/wav_writer.dart';
 import 'package:test/test.dart';
@@ -270,11 +268,11 @@ void main() {
         }
 
         if (event['type'] == 'barge_in' && lastResponseTime != null) {
-          final latency = timestamp.difference(lastResponseTime!);
+          final latency = timestamp.difference(lastResponseTime);
           final sentenceCount = event['sentencesTotal'] as int;
           final avgPerSentence = latency.inMilliseconds / sentenceCount;
 
-          print('Response: "${lastResponseText!.substring(0, 50.clamp(0, lastResponseText!.length))}..."');
+          print('Response: "${lastResponseText!.substring(0, 50.clamp(0, lastResponseText.length))}..."');
           print('  Barge-in after: ${latency.inMilliseconds}ms');
           print('  Sentences: $sentenceCount');
           print('  Avg per sentence: ${avgPerSentence.round()}ms');

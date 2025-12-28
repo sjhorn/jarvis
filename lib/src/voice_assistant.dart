@@ -11,6 +11,8 @@ import 'context/conversation_context.dart';
 import 'llm/llama_process.dart';
 import 'logging.dart';
 import 'stt/whisper_process.dart';
+import 'stt/whisper_server.dart';
+import 'tts/isolate_tts_manager.dart';
 import 'tts/text_processor.dart';
 import 'tts/tts_manager.dart';
 import 'vad/voice_activity_detector.dart';
@@ -47,6 +49,7 @@ class VoiceAssistantConfig {
   // Whisper settings
   final String whisperModelPath;
   final String whisperExecutablePath;
+  final String? whisperServerExecutablePath; // If set, uses server mode
 
   // Llama settings
   final String llamaModelRepo;
@@ -85,8 +88,8 @@ class VoiceAssistantConfig {
   final String? bargeInDir;
 
   // Audio playback settings
-  final AudioPlayer? audioPlayer;  // null = auto-detect
-  final String? audioPlayerPath;   // custom executable path
+  final AudioPlayer? audioPlayer; // null = auto-detect
+  final String? audioPlayerPath; // custom executable path
 
   // Session recording settings
   final bool recordingEnabled;
@@ -95,6 +98,7 @@ class VoiceAssistantConfig {
   VoiceAssistantConfig({
     required this.whisperModelPath,
     required this.whisperExecutablePath,
+    this.whisperServerExecutablePath,
     required this.llamaModelRepo,
     required this.llamaExecutablePath,
     required this.wakeWordEncoderPath,
@@ -153,9 +157,10 @@ class VoiceAssistant {
   AudioOutput? _audioOutput;
   WakeWordDetector? _wakeWordDetector;
   VoiceActivityDetector? _vad;
-  WhisperProcess? _whisper;
+  WhisperProcess? _whisperProcess;
+  WhisperServer? _whisperServer;
   LlamaProcess? _llama;
-  TtsManager? _tts;
+  IsolateTtsManager? _tts;
   AcknowledgmentPlayer? _acknowledgmentPlayer;
   AcknowledgmentPlayer? _bargeInPlayer;
   SessionRecorder? _recorder;
@@ -271,14 +276,24 @@ class VoiceAssistant {
       );
       _log.fine('VAD initialized');
 
-      // Initialize Whisper
-      _log.fine('Initializing Whisper (model: ${config.whisperModelPath})...');
-      _whisper = WhisperProcess(
-        modelPath: config.whisperModelPath,
-        executablePath: config.whisperExecutablePath,
-      );
-      await _whisper!.initialize();
-      _log.fine('Whisper initialized');
+      // Initialize Whisper (use server mode if available for faster transcription)
+      if (config.whisperServerExecutablePath != null) {
+        _log.fine('Initializing Whisper Server (model: ${config.whisperModelPath})...');
+        _whisperServer = WhisperServer(
+          modelPath: config.whisperModelPath,
+          serverExecutablePath: config.whisperServerExecutablePath!,
+        );
+        await _whisperServer!.initialize();
+        _log.fine('Whisper Server initialized (model stays loaded)');
+      } else {
+        _log.fine('Initializing Whisper Process (model: ${config.whisperModelPath})...');
+        _whisperProcess = WhisperProcess(
+          modelPath: config.whisperModelPath,
+          executablePath: config.whisperExecutablePath,
+        );
+        await _whisperProcess!.initialize();
+        _log.fine('Whisper Process initialized (model loads per call)');
+      }
 
       // Initialize Llama
       _log.fine('Initializing Llama (model: ${config.llamaModelRepo})...');
@@ -290,16 +305,16 @@ class VoiceAssistant {
       await _llama!.initialize();
       _log.fine('Llama initialized');
 
-      // Initialize TTS
-      _log.fine('Initializing TTS...');
-      _tts = TtsManager(
+      // Initialize TTS in isolate for parallel synthesis
+      _log.fine('Initializing TTS (isolate-based)...');
+      _tts = IsolateTtsManager(
         modelPath: config.ttsModelPath,
         tokensPath: config.ttsTokensPath,
         dataDir: config.ttsDataDir,
         nativeLibPath: config.sherpaLibPath,
       );
       await _tts!.initialize();
-      _log.fine('TTS initialized');
+      _log.fine('TTS initialized (isolate-based)');
 
       // Initialize acknowledgment player (optional)
       _log.info('Acknowledgment dir config: ${config.acknowledgmentDir}');
@@ -395,7 +410,9 @@ class VoiceAssistant {
 
       case AssistantState.awaitingFollowUp:
         // Feed audio to VAD to detect if user starts speaking
+        // Also buffer audio so we don't lose speech when transitioning to listening
         _vad?.processAudio(chunk);
+        _audioBuffer.addAll(chunk);
         break;
 
       case AssistantState.speaking:
@@ -439,14 +456,17 @@ class VoiceAssistant {
     await _recorder?.recordWakeWord(event.keyword);
 
     // Play acknowledgment if available
-    if (_acknowledgmentPlayer != null && _acknowledgmentPlayer!.hasAcknowledgments) {
+    if (_acknowledgmentPlayer != null &&
+        _acknowledgmentPlayer!.hasAcknowledgments) {
       _log.info('Playing acknowledgment...');
       await _acknowledgmentPlayer!.playRandom();
       _log.info('Acknowledgment playback complete');
     } else {
-      _log.info('No acknowledgment player available '
-          '(player: ${_acknowledgmentPlayer != null}, '
-          'hasAck: ${_acknowledgmentPlayer?.hasAcknowledgments})');
+      _log.info(
+        'No acknowledgment player available '
+        '(player: ${_acknowledgmentPlayer != null}, '
+        'hasAck: ${_acknowledgmentPlayer?.hasAcknowledgments})',
+      );
     }
 
     // Transition to listening state
@@ -462,13 +482,16 @@ class VoiceAssistant {
 
     _cancelFollowUpTimer();
 
+    // Cancel any ongoing LLM streaming
+    _llama?.cancelStream();
+
     // Transition to listening FIRST so audio immediately routes to VAD
     // (before async stop() which takes ~100ms)
     _audioBuffer.clear();
     _vad?.reset();
     _setState(AssistantState.listening);
 
-    _log.info('Barge-in: stopping audio, now listening');
+    _log.info('Barge-in: stopping audio and LLM stream, now listening');
 
     // Stop any playing audio (async, but audio already routing to VAD)
     await _audioOutput?.stop();
@@ -495,17 +518,23 @@ class VoiceAssistant {
         if (_followUpStartTime != null) {
           final elapsed = DateTime.now().difference(_followUpStartTime!);
           if (elapsed < _followUpGracePeriod) {
-            _log.fine('Ignoring speech during grace period (${elapsed.inMilliseconds}ms)');
+            _log.fine(
+              'Ignoring speech during grace period (${elapsed.inMilliseconds}ms)',
+            );
             return;
           }
         }
 
         // User started speaking, transition to listening
-        _log.info('Speech detected during follow-up, transitioning to listening');
+        _log.info(
+          'Speech detected during follow-up, transitioning to listening '
+          '(buffer: ${_audioBuffer.length} bytes)',
+        );
         _cancelFollowUpTimer();
         _setState(AssistantState.listening);
-        _audioBuffer.clear();
-        _vad?.reset();
+        // NOTE: Don't clear buffer - it contains speech audio captured during awaitingFollowUp
+        // NOTE: Don't reset VAD - it already knows speech is happening
+        // and needs to detect the silence when user stops speaking
       }
       return;
     }
@@ -514,6 +543,7 @@ class VoiceAssistant {
 
     if (event.state == VADState.silence) {
       // User stopped speaking, process the audio
+      _log.info('VAD silence detected, processing speech (buffer: ${_audioBuffer.length} bytes)');
       await _processUserSpeech();
     }
   }
@@ -539,7 +569,9 @@ class VoiceAssistant {
 
   /// Handles follow-up timeout.
   Future<void> _onFollowUpTimeout() async {
-    _log.fine('_onFollowUpTimeout called (state: $_currentState, promptCount: $_promptCount, lastQuestion: $_lastQuestion)');
+    _log.fine(
+      '_onFollowUpTimeout called (state: $_currentState, promptCount: $_promptCount, lastQuestion: $_lastQuestion)',
+    );
 
     if (_currentState != AssistantState.awaitingFollowUp) {
       _log.fine('Ignoring timeout - not in awaitingFollowUp state');
@@ -567,6 +599,11 @@ class VoiceAssistant {
 
     try {
       final sentences = _textProcessor.process(text);
+      if (sentences.isEmpty) return;
+
+      // Pipeline: pre-synthesize first sentence
+      var currentResult = await _tts!.synthesize(sentences[0]);
+
       for (var i = 0; i < sentences.length; i++) {
         // Check for barge-in (check state, not just flag)
         if (_currentState != AssistantState.prompting) {
@@ -576,17 +613,34 @@ class VoiceAssistant {
 
         final sentence = sentences[i];
         _log.fine('Prompting: "$sentence"');
-        final ttsResult = await _tts!.synthesize(sentence);
-        final pcmAudio = ttsResult.toPcm16();
-        await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
 
-        if (i < sentences.length - 1 && config.sentencePause.inMilliseconds > 0) {
+        // Start synthesizing next sentence in parallel
+        Future<TtsResult>? nextSynthesis;
+        if (i < sentences.length - 1) {
+          nextSynthesis = _tts!.synthesize(sentences[i + 1]);
+        }
+
+        // Play current sentence
+        final pcmAudio = currentResult.toPcm16();
+        await _audioOutput!.play(
+          pcmAudio,
+          audioSampleRate: currentResult.sampleRate,
+        );
+
+        // Wait for next synthesis
+        if (nextSynthesis != null) {
+          currentResult = await nextSynthesis;
+        }
+
+        if (i < sentences.length - 1 &&
+            config.sentencePause.inMilliseconds > 0) {
           await Future<void>.delayed(config.sentencePause);
         }
       }
 
       // Return to awaiting follow-up (use question timeout since we just prompted)
       _followUpStartTime = DateTime.now();
+      _audioBuffer.clear(); // Clear buffer to start fresh for follow-up
       _setState(AssistantState.awaitingFollowUp);
       _vad?.reset();
       _startFollowUpTimer(config.followUpTimeout);
@@ -598,6 +652,7 @@ class VoiceAssistant {
 
   /// Processes user speech after silence is detected.
   Future<void> _processUserSpeech() async {
+    final processingStart = DateTime.now();
     final audioSize = _audioBuffer.length;
     _log.fine('Processing user speech (buffer size: $audioSize bytes)');
 
@@ -612,17 +667,26 @@ class VoiceAssistant {
     try {
       // Transcribe audio
       final audioData = Uint8List.fromList(_audioBuffer);
+      final audioDurationMs = audioData.length ~/ 32; // 16kHz * 2 bytes = 32 bytes/ms
+      _log.info('Processing ${audioData.length} bytes of audio (~${audioDurationMs}ms)');
       _audioBuffer.clear();
 
       // Record user audio
       final audioRef = _utteranceCount++;
       await _recorder?.recordUserAudio(audioData);
 
-      _log.fine('Transcribing audio with Whisper...');
-      final transcription = await _whisper!.transcribe(audioData);
+      _log.info('[START] Transcribing audio...');
+      final transcribeStart = DateTime.now();
+      final transcription = _whisperServer != null
+          ? await _whisperServer!.transcribe(audioData)
+          : await _whisperProcess!.transcribe(audioData);
+      final transcribeMs = DateTime.now()
+          .difference(transcribeStart)
+          .inMilliseconds;
+      _log.info('[TIMING] Transcription: ${transcribeMs}ms');
 
       if (transcription.isEmpty) {
-        _log.fine('Transcription empty, returning to wake word detection');
+        _log.info('Transcription empty (audio buffer was ${audioData.length} bytes), returning to wake word detection');
         _setState(AssistantState.listeningForWakeWord);
         return;
       }
@@ -636,47 +700,182 @@ class VoiceAssistant {
       // Add to conversation context
       _context.addUserMessage(transcription);
 
-      // Get LLM response
-      _log.fine('Generating LLM response...');
+      // Stream LLM response and pipeline to TTS
+      // Uses concurrent execution: token reception runs independently of playback
+      _log.info('[START] Streaming LLM response...');
+      final llmStart = DateTime.now();
       final chatMessages = _context.getChatMessages();
-      final response = await _llama!.chat(transcription, chatMessages);
+      final tokenStream = _llama!.chatStream(transcription, chatMessages);
+
+      _setState(AssistantState.speaking);
+
+      // Timing instrumentation
+      final speakingStopwatch = Stopwatch()..start();
+      var totalSynthesisMs = 0;
+      var totalPlaybackMs = 0;
+      var totalPauseMs = 0;
+      var firstAudioLogged = false;
+
+      // State for streaming pipeline
+      var tokenBuffer = '';
+      final sentences = <String>[];
+      var fullResponse = StringBuffer();
+
+      // Queue of synthesis futures - allows concurrent token reception and playback
+      final synthesisQueue = <Future<TtsResult>>[];
+      var playbackIndex = 0; // Next sentence to play
+
+      // Token producer: runs concurrently, extracts sentences and queues synthesis
+      final tokensDone = Completer<void>();
+
+      // Process tokens in background
+      var firstTokenLogged = false;
+      () async {
+        try {
+          await for (final token in tokenStream) {
+            // Log time-to-first-token
+            if (!firstTokenLogged) {
+              final ttftMs =
+                  DateTime.now().difference(processingStart).inMilliseconds;
+              _log.info('[TIMING] Time-to-first-token: ${ttftMs}ms');
+              firstTokenLogged = true;
+            }
+
+            // Check for barge-in
+            if (_currentState != AssistantState.speaking) {
+              _log.fine('Barge-in detected during streaming, cancelling');
+              _llama!.cancelStream();
+              break;
+            }
+
+            tokenBuffer += token;
+            fullResponse.write(token);
+
+            // Try to extract complete sentences
+            while (true) {
+              final (sentence, remainder) =
+                  _textProcessor.extractCompleteSentence(tokenBuffer);
+              if (sentence == null) break;
+
+              tokenBuffer = remainder;
+              sentences.add(sentence);
+              _log.fine('Extracted sentence ${sentences.length}: "$sentence"');
+
+              // Immediately start synthesis for this sentence
+              synthesisQueue.add(_tts!.synthesize(sentence));
+            }
+          }
+
+          // Process any remaining buffered text as final sentence
+          if (tokenBuffer.isNotEmpty &&
+              _currentState == AssistantState.speaking) {
+            final finalSentence = _textProcessor.clean(tokenBuffer);
+            if (finalSentence.isNotEmpty) {
+              sentences.add(finalSentence);
+              _log.fine('Final sentence: "$finalSentence"');
+              synthesisQueue.add(_tts!.synthesize(finalSentence));
+            }
+          }
+        } finally {
+          tokensDone.complete();
+        }
+      }();
+
+      // Playback consumer: plays sentences as they become ready
+      while (true) {
+        // Check for barge-in
+        if (_currentState != AssistantState.speaking) {
+          _log.fine('Barge-in detected during playback, stopping');
+          break;
+        }
+
+        // Wait for next sentence to be available
+        if (playbackIndex >= synthesisQueue.length) {
+          // No synthesis queued yet - check if tokens are still coming
+          if (tokensDone.isCompleted) {
+            // All tokens processed, no more sentences coming
+            break;
+          }
+          // Wait a bit for more tokens
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          continue;
+        }
+
+        // Wait for synthesis to complete
+        final synthStart = speakingStopwatch.elapsedMilliseconds;
+        final result = await synthesisQueue[playbackIndex];
+        totalSynthesisMs += speakingStopwatch.elapsedMilliseconds - synthStart;
+
+        // Check for barge-in after synthesis
+        if (_currentState != AssistantState.speaking) {
+          _log.fine('Barge-in detected after synthesis, stopping');
+          break;
+        }
+
+        // Log time-to-first-audio on first sentence
+        if (!firstAudioLogged) {
+          final ttfaMs =
+              DateTime.now().difference(processingStart).inMilliseconds;
+          _log.info('[TIMING] Time-to-first-audio: ${ttfaMs}ms');
+          firstAudioLogged = true;
+        }
+
+        // Play current sentence
+        final pcmAudio = result.toPcm16();
+        final audioDurationMs =
+            (result.samples.length / result.sampleRate * 1000).round();
+        _log.fine(
+          'Playing sentence ${playbackIndex + 1}: '
+          '(${pcmAudio.length} bytes, ${audioDurationMs}ms audio)',
+        );
+
+        final playbackStart = speakingStopwatch.elapsedMilliseconds;
+        await _audioOutput!.play(
+          pcmAudio,
+          audioSampleRate: result.sampleRate,
+        );
+        final playbackMs =
+            speakingStopwatch.elapsedMilliseconds - playbackStart;
+        totalPlaybackMs += playbackMs;
+
+        _recorder?.advanceSentence();
+        playbackIndex++;
+
+        // Add pause between sentences (only if more sentences coming)
+        final moreSentences = playbackIndex < synthesisQueue.length ||
+            !tokensDone.isCompleted;
+        if (moreSentences && config.sentencePause.inMilliseconds > 0) {
+          final pauseStart = speakingStopwatch.elapsedMilliseconds;
+          await Future<void>.delayed(config.sentencePause);
+          totalPauseMs += speakingStopwatch.elapsedMilliseconds - pauseStart;
+        }
+      }
+
+      // Wait for token processing to finish (in case of early exit)
+      if (!tokensDone.isCompleted) {
+        await tokensDone.future;
+      }
+
+      speakingStopwatch.stop();
+      final llmMs = DateTime.now().difference(llmStart).inMilliseconds;
+      _log.info('[TIMING] LLM + Speaking: ${llmMs}ms');
+      _log.info(
+        '[TIMING] Total speaking: ${speakingStopwatch.elapsedMilliseconds}ms '
+        '(synth=${totalSynthesisMs}ms, play=${totalPlaybackMs}ms, '
+        'pause=${totalPauseMs}ms)',
+      );
+
+      // Build full response for context and logging
+      final response = fullResponse.toString().trim();
       _log.info('LLM response: "$response"');
 
       // Add response to context
       _context.addAssistantMessage(response);
       _responseController.add(response);
 
-      // Speak response sentence by sentence
-      _setState(AssistantState.speaking);
-      final sentences = _textProcessor.process(response);
-      _log.fine('Split response into ${sentences.length} sentences');
-
-      // Record response and set speaking state for barge-in tracking
+      // Record response
       await _recorder?.recordResponse(response, sentences.length);
       _recorder?.setSpeakingState(sentences);
-
-      for (var i = 0; i < sentences.length; i++) {
-        // Check for barge-in before each sentence (check state, not just flag)
-        if (_currentState != AssistantState.speaking) {
-          _log.fine('State changed during speaking (barge-in), stopping');
-          return;
-        }
-
-        final sentence = sentences[i];
-        _log.fine('Synthesizing sentence ${i + 1}/${sentences.length}: "$sentence"');
-        final ttsResult = await _tts!.synthesize(sentence);
-        final pcmAudio = ttsResult.toPcm16();
-        _log.fine('Playing audio (${pcmAudio.length} bytes at ${ttsResult.sampleRate}Hz)...');
-        await _audioOutput!.play(pcmAudio, audioSampleRate: ttsResult.sampleRate);
-
-        // Advance sentence index for barge-in tracking
-        _recorder?.advanceSentence();
-
-        // Add pause between sentences (but not after the last one)
-        if (i < sentences.length - 1 && config.sentencePause.inMilliseconds > 0) {
-          await Future<void>.delayed(config.sentencePause);
-        }
-      }
 
       // Check if we were interrupted by barge-in during or after last sentence
       if (_currentState != AssistantState.speaking) {
@@ -690,14 +889,19 @@ class VoiceAssistant {
         _lastQuestion = lastQuestion; // null if not a question
         _promptCount = 0;
         _followUpStartTime = DateTime.now();
+        _audioBuffer.clear(); // Clear buffer to start fresh for follow-up
         _setState(AssistantState.awaitingFollowUp);
         _vad?.reset();
 
         if (lastQuestion != null) {
-          _log.info('Response ends with question, awaiting follow-up (${config.followUpTimeout.inSeconds}s)');
+          _log.info(
+            'Response ends with question, awaiting follow-up (${config.followUpTimeout.inSeconds}s)',
+          );
           _startFollowUpTimer(config.followUpTimeout);
         } else {
-          _log.info('Awaiting follow-up (${config.statementFollowUpTimeout.inSeconds}s)');
+          _log.info(
+            'Awaiting follow-up (${config.statementFollowUpTimeout.inSeconds}s)',
+          );
           _startFollowUpTimer(config.statementFollowUpTimeout);
         }
       } else {
@@ -793,7 +997,8 @@ class VoiceAssistant {
     await _audioInput?.dispose();
     await _audioOutput?.dispose();
     await _wakeWordDetector?.dispose();
-    await _whisper?.dispose();
+    await _whisperProcess?.dispose();
+    await _whisperServer?.dispose();
     await _llama?.dispose();
     await _tts?.dispose();
     await _acknowledgmentPlayer?.dispose();
@@ -804,7 +1009,8 @@ class VoiceAssistant {
     _audioOutput = null;
     _wakeWordDetector = null;
     _vad = null;
-    _whisper = null;
+    _whisperProcess = null;
+    _whisperServer = null;
     _llama = null;
     _tts = null;
     _acknowledgmentPlayer = null;

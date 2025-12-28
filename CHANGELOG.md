@@ -1,3 +1,28 @@
+## 1.0.6
+
+- Fix audio buffering during follow-up state (prevents empty transcriptions)
+- Improve sentence processing for faster TTS streaming:
+  - Break on newlines for multi-line responses
+  - Break on clause separators (; : — –)
+  - Force break at 20 words max to prevent long pauses
+- Enable Metal GPU acceleration for llama-cli (-ngl 99)
+- Add VAD unit tests for follow-up listening scenarios
+
+## 1.0.5
+
+- Generate tuned keywords.txt on fresh install
+- Add JARVIS phonetic variants for better wake word detection
+- Always regenerate keywords.txt on setup to apply latest tuning
+- Clean up Python venv after adding ONNX metadata (saves ~50MB)
+- Generate acknowledgment audio during setup using Dart sherpa_onnx (no Python required)
+- Auto-resolve audio assets from ~/.jarvis/assets when running globally
+- Add timing instrumentation for performance analysis (--debug flag)
+- Pipeline TTS synthesis with playback for smoother multi-sentence responses
+- Generate complete config.yaml with all settings during setup
+- Use isolate-based TTS for true parallel synthesis (~27% speedup)
+- Add whisper-server support to keep whisper model warm between calls
+- Stream LLM output to TTS for faster time-to-first-audio (reduced from 3-5s to ~1s)
+
 ## 1.0.4
 
 - Add ONNX metadata step to TTS model setup

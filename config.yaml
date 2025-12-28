@@ -3,6 +3,7 @@
 # Whisper (Speech-to-Text)
 whisper_model_path: /Users/shorn/dev/c/whisper.cpp/models/ggml-base.en.bin
 whisper_executable: /Users/shorn/dev/c/whisper.cpp/build/bin/whisper-cli
+whisper_server_executable: /opt/homebrew/bin/whisper-server  # Keeps model warm
 
 # Llama (LLM)
 llama_model_repo: ggml-org/gemma-3-1b-it-GGUF
@@ -16,7 +17,7 @@ wakeword_tokens_path: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-202
 wakeword_keywords_file: ./models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/keywords.txt
 
 # TTS (Text-to-Speech)
-tts_model_path: ./models/tts/jarvis-high.onnx
+tts_model_path: ./models/tts/jarvis-medium.onnx
 tts_tokens_path: ./models/tts/tokens.txt
 tts_data_dir: ./models/tts/espeak-ng-data
 
@@ -43,7 +44,7 @@ system_prompt: |
 silence_threshold: 0.01
 silence_duration_ms: 800
 max_history_length: 10
-sentence_pause_ms: 200
+sentence_pause_ms: 100
 
 # Follow-up listening
 enable_follow_up: true

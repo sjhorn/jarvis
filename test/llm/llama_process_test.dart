@@ -311,5 +311,79 @@ void main() {
       },
       timeout: const Timeout(Duration(minutes: 2)),
     );
+
+    test(
+      'chatStream should emit tokens as they are generated',
+      () async {
+        if (llamaPath == null) {
+          markTestSkipped('llama-cli not available');
+          return;
+        }
+
+        final llama = LlamaProcess(
+          modelRepo: modelRepo,
+          executablePath: llamaPath!,
+        );
+        await llama.initialize();
+
+        try {
+          final tokens = <String>[];
+          final stream = llama.chatStream('Say hello', []);
+
+          await for (final token in stream) {
+            tokens.add(token);
+          }
+
+          // Should have received multiple tokens
+          expect(tokens, isNotEmpty);
+
+          // Concatenated tokens should form a response
+          final fullResponse = tokens.join();
+          expect(fullResponse.isNotEmpty, isTrue);
+        } finally {
+          await llama.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'cancelStream should stop token emission',
+      () async {
+        if (llamaPath == null) {
+          markTestSkipped('llama-cli not available');
+          return;
+        }
+
+        final llama = LlamaProcess(
+          modelRepo: modelRepo,
+          executablePath: llamaPath!,
+        );
+        await llama.initialize();
+
+        try {
+          final tokens = <String>[];
+          final stream = llama.chatStream('Tell me a long story', []);
+
+          var count = 0;
+          await for (final token in stream) {
+            tokens.add(token);
+            count++;
+            if (count >= 3) {
+              // Cancel after receiving a few tokens
+              llama.cancelStream();
+              break;
+            }
+          }
+
+          // Should have received some tokens before cancellation
+          expect(tokens.length, greaterThanOrEqualTo(1));
+          expect(tokens.length, lessThanOrEqualTo(5));
+        } finally {
+          await llama.dispose();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
   });
 }

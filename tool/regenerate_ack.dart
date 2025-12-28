@@ -5,8 +5,8 @@ import 'package:jarvis_dart/src/tts/tts_manager.dart';
 
 /// Regenerates a single acknowledgment file.
 ///
-/// Usage: dart run tool/regenerate_ack.dart <index> "<phrase>"
-/// Example: dart run tool/regenerate_ack.dart 8 "System active."
+/// Usage: `dart run tool/regenerate_ack.dart <index> "<phrase>"`
+/// Example: `dart run tool/regenerate_ack.dart 8 "System active."`
 Future<void> main(List<String> args) async {
   if (args.length < 2) {
     print('Usage: dart run tool/regenerate_ack.dart <index> "<phrase>"');

@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../logging.dart';
+import '../tts/tts_manager.dart';
 
 final _log = Logger(Loggers.modelDownloader);
 
@@ -27,11 +28,11 @@ class ModelDownloader {
 
   /// TTS model URL.
   static const ttsModelUrl =
-      'https://huggingface.co/jgkawell/jarvis/resolve/main/en/en_GB/jarvis/high/jarvis-high.onnx';
+      'https://huggingface.co/jgkawell/jarvis/resolve/main/en/en_GB/jarvis/medium/jarvis-medium.onnx';
 
   /// TTS config URL.
   static const ttsConfigUrl =
-      'https://huggingface.co/jgkawell/jarvis/resolve/main/en/en_GB/jarvis/high/jarvis-high.onnx.json';
+      'https://huggingface.co/jgkawell/jarvis/resolve/main/en/en_GB/jarvis/medium/jarvis-medium.onnx.json';
 
   /// espeak-ng data archive URL.
   static const espeakDataUrl =
@@ -41,10 +42,7 @@ class ModelDownloader {
   final String modelsDir;
   final void Function(String message)? onProgress;
 
-  ModelDownloader({
-    required this.modelsDir,
-    this.onProgress,
-  });
+  ModelDownloader({required this.modelsDir, this.onProgress});
 
   void _progress(String message) {
     onProgress?.call(message);
@@ -52,13 +50,43 @@ class ModelDownloader {
   }
 
   /// Downloads all models required for JARVIS.
-  Future<void> downloadAll() async {
+  ///
+  /// Requires [sherpaLibPath] to generate acknowledgment audio using TTS.
+  Future<void> downloadAll({String? sherpaLibPath}) async {
     await Directory(modelsDir).create(recursive: true);
 
     await downloadWhisperModel();
     await downloadKwsModel();
     await downloadTtsModel();
+    await generateAcknowledgments(sherpaLibPath: sherpaLibPath);
   }
+
+  /// Acknowledgment phrases for wake word response.
+  static const acknowledgmentPhrases = [
+    'Yes, sir.',
+    'At your service, sir.',
+    "I'm here, sir.",
+    'Online and ready, sir.',
+    'Standing by, sir.',
+    'Listening, sir.',
+    'How may I assist, sir?',
+    'Awaiting your instructions, sir.',
+    'System active.',
+    'Of course, sir.',
+    'Right away, sir.',
+    'Confirmed, sir.',
+    'Present and accounted for, sir.',
+    'Always listening, sir.',
+  ];
+
+  /// Barge-in phrases for interruption acknowledgment.
+  static const bargeInPhrases = [
+    'Yes?',
+    'Sir?',
+    'Go ahead.',
+    'Listening.',
+    'I hear you.',
+  ];
 
   /// Downloads the Whisper speech-to-text model.
   Future<void> downloadWhisperModel() async {
@@ -87,6 +115,8 @@ class ModelDownloader {
     // Check if already downloaded
     if (await Directory(modelDir).exists()) {
       _progress('KWS model already downloaded');
+      // Always regenerate keywords.txt to ensure tuned version is used
+      await _generateKeywords(modelDir);
       return;
     }
 
@@ -101,7 +131,36 @@ class ModelDownloader {
 
     // Clean up archive
     await File(archivePath).delete();
+
+    // Generate tuned keywords.txt with JARVIS phonetic variants
+    await _generateKeywords(modelDir);
     _progress('KWS model ready');
+  }
+
+  /// Generates tuned keywords.txt with JARVIS phonetic variants.
+  ///
+  /// The default keywords.txt in the archive doesn't work well for "JARVIS".
+  /// This generates a custom file with BPE-encoded phonetic variants that
+  /// all map to the @JARVIS alias for consistent detection.
+  Future<void> _generateKeywords(String modelDir) async {
+    final keywordsPath = '$modelDir/keywords.txt';
+
+    // JARVIS phonetic variants using BPE tokens from the model
+    // Each variant maps to @JARVIS alias so detection reports "JARVIS"
+    const keywordsContent = '''▁JA R VI S @JARVIS
+▁JA V A @JARVIS
+▁JA R V @JARVIS
+▁JA V AS @JARVIS
+▁JA A VI S @JARVIS
+▁JA R V US @JARVIS
+▁JA R V AS @JARVIS
+▁JE R VI S @JARVIS
+▁JU R VI S @JARVIS
+▁JA VI S @JARVIS
+''';
+
+    await File(keywordsPath).writeAsString(keywordsContent);
+    _log.fine('Generated tuned keywords.txt');
   }
 
   /// Downloads the TTS model and generates tokens.txt.
@@ -289,18 +348,17 @@ class ModelDownloader {
       _progress('  Creating Python virtual environment...');
       final result = await Process.run(python, ['-m', 'venv', venvDir]);
       if (result.exitCode != 0) {
-        throw ModelDownloadException(
-          'Failed to create venv: ${result.stderr}',
-        );
+        throw ModelDownloadException('Failed to create venv: ${result.stderr}');
       }
     }
 
     // Install onnx if not already installed
     _progress('  Installing onnx package...');
-    final pipResult = await Process.run(
-      venvPip,
-      ['install', '--quiet', 'onnx'],
-    );
+    final pipResult = await Process.run(venvPip, [
+      'install',
+      '--quiet',
+      'onnx',
+    ]);
     if (pipResult.exitCode != 0) {
       throw ModelDownloadException(
         'Failed to install onnx: ${pipResult.stderr}',
@@ -308,7 +366,8 @@ class ModelDownloader {
     }
 
     // Python script to add metadata
-    final pythonScript = '''
+    final pythonScript =
+        '''
 import json
 import onnx
 
@@ -356,8 +415,18 @@ print("Metadata added successfully")
     }
     _log.fine('ONNX metadata added: ${scriptResult.stdout}');
 
-    // Clean up script
+    // Clean up script and venv
     await File(scriptPath).delete();
+    _progress('  Cleaning up Python environment...');
+    await _deleteDirectory(venvDir);
+  }
+
+  /// Recursively deletes a directory.
+  Future<void> _deleteDirectory(String path) async {
+    final dir = Directory(path);
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
   }
 
   /// Finds Python 3 executable.
@@ -399,6 +468,95 @@ print("Metadata added successfully")
         await ttsModel.exists() &&
         await tokens.exists() &&
         await espeakData.exists();
+  }
+
+  /// Generates acknowledgment audio files using TTS.
+  ///
+  /// Requires [sherpaLibPath] to initialize the TTS engine.
+  Future<void> generateAcknowledgments({String? sherpaLibPath}) async {
+    final assetsDir = modelsDir.replaceAll('/models', '/assets');
+    final ackDir = '$assetsDir/acknowledgments';
+    final bargeInDir = '$assetsDir/bargein';
+    final markerFile = '$assetsDir/.generated';
+
+    // Check if already generated
+    if (await File(markerFile).exists()) {
+      _progress('Acknowledgment audio already generated');
+      return;
+    }
+
+    // Initialize TTS for generation
+    final ttsDir = '$modelsDir/tts';
+    final modelPath = '$ttsDir/model.onnx';
+    final tokensPath = '$ttsDir/tokens.txt';
+    final dataDir = '$ttsDir/espeak-ng-data';
+
+    // Check TTS model exists
+    if (!await File(modelPath).exists()) {
+      _log.warning('TTS model not found, skipping acknowledgment generation');
+      return;
+    }
+
+    _progress('Generating acknowledgment audio...');
+
+    await Directory(ackDir).create(recursive: true);
+    await Directory(bargeInDir).create(recursive: true);
+
+    TtsManager? tts;
+    try {
+      // Initialize TTS using Dart sherpa_onnx
+      tts = TtsManager(
+        modelPath: modelPath,
+        tokensPath: tokensPath,
+        dataDir: dataDir,
+        nativeLibPath: sherpaLibPath,
+      );
+      await tts.initialize();
+
+      // Generate acknowledgment phrases
+      _progress('  Generating ${acknowledgmentPhrases.length} acknowledgments...');
+      for (var i = 0; i < acknowledgmentPhrases.length; i++) {
+        final phrase = acknowledgmentPhrases[i];
+        final filename = 'ack_${i.toString().padLeft(2, '0')}.wav';
+        final outputPath = '$ackDir/$filename';
+
+        final result = await tts.synthesize(phrase);
+        await File(outputPath).writeAsBytes(result.toWav());
+        _log.fine('Generated: $filename');
+      }
+
+      // Generate barge-in phrases
+      _progress('  Generating ${bargeInPhrases.length} barge-in phrases...');
+      for (var i = 0; i < bargeInPhrases.length; i++) {
+        final phrase = bargeInPhrases[i];
+        final filename = 'bargein_${i.toString().padLeft(2, '0')}.wav';
+        final outputPath = '$bargeInDir/$filename';
+
+        final result = await tts.synthesize(phrase);
+        await File(outputPath).writeAsBytes(result.toWav());
+        _log.fine('Generated: $filename');
+      }
+
+      // Create marker file
+      await File(markerFile).writeAsString('generated');
+      _progress('Acknowledgment audio ready');
+    } catch (e, stackTrace) {
+      _log.warning('Failed to generate acknowledgments: $e', e, stackTrace);
+      // Clean up on failure
+      await _deleteDirectory(ackDir);
+      await _deleteDirectory(bargeInDir);
+    } finally {
+      await tts?.dispose();
+    }
+  }
+
+  /// Gets asset paths for configuration.
+  Map<String, String> getAssetPaths() {
+    final assetsDir = modelsDir.replaceAll('/models', '/assets');
+    return {
+      'acknowledgment_dir': '$assetsDir/acknowledgments',
+      'barge_in_dir': '$assetsDir/bargein',
+    };
   }
 
   /// Gets model paths for configuration.

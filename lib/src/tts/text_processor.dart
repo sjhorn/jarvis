@@ -4,7 +4,12 @@
 /// - Removing markdown formatting
 /// - Removing symbols that don't speak well
 /// - Splitting text into sentences
+/// - Breaking on newlines, semicolons, colons, and em-dashes
+/// - Forcing breaks on long sentences (max words limit)
 class TextProcessor {
+  /// Maximum words before forcing a sentence break.
+  /// This prevents long pauses while waiting for a natural break point.
+  static const int maxWordsPerChunk = 20;
   /// Patterns for markdown that should keep the text content.
   static final _keepTextPatterns = [
     RegExp(r'\*\*\*(.+?)\*\*\*'), // Bold+italic
@@ -88,15 +93,18 @@ class TextProcessor {
       result = result.replaceAll(symbol, replacement);
     });
 
-    // Normalize whitespace
-    result = result.replaceAll(RegExp(r'\s+'), ' ');
+    // Normalize whitespace within lines (preserve newlines for sentence breaking)
+    result = result.replaceAll(RegExp(r'[^\S\n]+'), ' ');
+
+    // Collapse multiple newlines into single newline
+    result = result.replaceAll(RegExp(r'\n+'), '\n');
 
     // Remove leading/trailing whitespace from each line
     result = result
         .split('\n')
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
-        .join(' ');
+        .join('\n');
 
     return result.trim();
   }
@@ -105,10 +113,60 @@ class TextProcessor {
   ///
   /// Handles:
   /// - Period, question mark, exclamation mark endings
+  /// - Newlines as sentence breaks
+  /// - Clause separators (; : —) followed by space
+  /// - Word limit (max 20 words per chunk)
   /// - Abbreviations (Mr., Dr., etc.)
   /// - Numbers with decimals
   List<String> splitSentences(String text) {
     if (text.isEmpty) return [];
+
+    final sentences = <String>[];
+    var remaining = text;
+
+    // Use extractCompleteSentence repeatedly to split
+    while (remaining.isNotEmpty) {
+      final (sentence, rest) = extractCompleteSentence(remaining);
+      if (sentence != null) {
+        sentences.add(sentence);
+        remaining = rest;
+      } else {
+        // No more complete sentences, add remaining as final chunk
+        final cleaned = clean(remaining);
+        if (cleaned.isNotEmpty) {
+          sentences.add(cleaned);
+        }
+        break;
+      }
+    }
+
+    return sentences;
+  }
+
+  /// Cleans text and splits into sentences.
+  List<String> process(String text) {
+    final cleaned = clean(text);
+    return splitSentences(cleaned);
+  }
+
+  /// Extracts the first complete sentence from a buffer.
+  ///
+  /// Returns a record of (completeSentence, remainingBuffer).
+  /// If no complete sentence is found, returns (null, originalBuffer).
+  ///
+  /// Breaks on:
+  /// - Sentence-ending punctuation (. ! ?) followed by whitespace or end
+  /// - Newlines
+  /// - Clause separators (; : —) followed by whitespace
+  /// - Word limit exceeded (breaks at last space before limit)
+  ///
+  /// Handles abbreviations (Mr., Dr., etc.) and decimal numbers.
+  (String?, String) extractCompleteSentence(String buffer) {
+    if (buffer.isEmpty) return (null, buffer);
+
+    // Clean the buffer first (removes markdown, etc.)
+    final cleaned = clean(buffer);
+    if (cleaned.isEmpty) return (null, buffer);
 
     // Common abbreviations that shouldn't end sentences
     const abbreviations = [
@@ -131,13 +189,49 @@ class TextProcessor {
       'Corp',
     ];
 
-    final sentences = <String>[];
-    final buffer = StringBuffer();
-    final chars = text.split('');
+    final chars = cleaned.split('');
+    var wordCount = 0;
+    var lastSpaceIndex = -1;
 
     for (var i = 0; i < chars.length; i++) {
       final char = chars[i];
-      buffer.write(char);
+
+      // Track word boundaries for max word limit
+      if (char == ' ') {
+        lastSpaceIndex = i;
+        wordCount++;
+
+        // Check if we've exceeded max words
+        if (wordCount >= maxWordsPerChunk && lastSpaceIndex > 0) {
+          // Break at the last space
+          final sentence = cleaned.substring(0, lastSpaceIndex).trim();
+          final remainder = cleaned.substring(lastSpaceIndex + 1).trim();
+          if (sentence.isNotEmpty) {
+            return (sentence, remainder);
+          }
+        }
+      }
+
+      // Check for newline (strong break)
+      if (char == '\n') {
+        final sentence = cleaned.substring(0, i).trim();
+        final remainder = cleaned.substring(i + 1).trim();
+        if (sentence.isNotEmpty) {
+          return (sentence, remainder);
+        }
+      }
+
+      // Check for clause separators (; : —) followed by space
+      if ((char == ';' || char == ':' || char == '—' || char == '–') &&
+          i < chars.length - 1 &&
+          chars[i + 1] == ' ') {
+        // Include the separator in the sentence
+        final sentence = cleaned.substring(0, i + 1).trim();
+        final remainder = cleaned.substring(i + 2).trim();
+        if (sentence.isNotEmpty) {
+          return (sentence, remainder);
+        }
+      }
 
       // Check for sentence-ending punctuation
       if (char == '.' || char == '?' || char == '!') {
@@ -147,10 +241,11 @@ class TextProcessor {
             i < chars.length - 1 && (chars[i + 1] == ' ' || chars[i + 1] == '\n');
 
         if (isEndOfText || hasSpaceAfter) {
-          // Check if it's an abbreviation
-          final currentText = buffer.toString().trim();
-          final lastWord = currentText.split(' ').last.replaceAll('.', '');
+          // Get text up to and including this punctuation
+          final textUpToHere = cleaned.substring(0, i + 1).trim();
+          final lastWord = textUpToHere.split(' ').last.replaceAll('.', '');
 
+          // Check if it's an abbreviation
           final isAbbreviation = abbreviations.any(
             (abbr) => lastWord.toLowerCase() == abbr.toLowerCase(),
           );
@@ -163,29 +258,20 @@ class TextProcessor {
               RegExp(r'\d').hasMatch(chars[i + 1]);
 
           if (!isAbbreviation && !isDecimal) {
-            final sentence = buffer.toString().trim();
-            if (sentence.isNotEmpty) {
-              sentences.add(sentence);
-            }
-            buffer.clear();
+            // Found a complete sentence!
+            final sentence = textUpToHere;
+            // Remainder is everything after the punctuation (skip the space if present)
+            var remainderStart = i + 1;
+            if (hasSpaceAfter) remainderStart++;
+            final remainder = cleaned.substring(remainderStart).trim();
+            return (sentence, remainder);
           }
         }
       }
     }
 
-    // Add remaining text as final sentence
-    final remaining = buffer.toString().trim();
-    if (remaining.isNotEmpty) {
-      sentences.add(remaining);
-    }
-
-    return sentences;
-  }
-
-  /// Cleans text and splits into sentences.
-  List<String> process(String text) {
-    final cleaned = clean(text);
-    return splitSentences(cleaned);
+    // No complete sentence found
+    return (null, buffer);
   }
 
   /// Returns true if the text ends with a question mark.

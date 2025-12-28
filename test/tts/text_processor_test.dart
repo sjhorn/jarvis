@@ -18,9 +18,10 @@ void main() {
     });
 
     test('should remove code blocks', () {
+      // Note: newlines are preserved for sentence breaking
       expect(
         processor.clean('Here is code:\n```dart\nprint("hello");\n```\nDone.'),
-        equals('Here is code: Done.'),
+        equals('Here is code:\nDone.'),
       );
     });
 
@@ -29,13 +30,15 @@ void main() {
     });
 
     test('should remove header markers', () {
-      expect(processor.clean('# Header\nContent'), equals('Header Content'));
+      // Note: newlines are preserved for sentence breaking
+      expect(processor.clean('# Header\nContent'), equals('Header\nContent'));
     });
 
     test('should remove bullet point markers', () {
+      // Note: newlines are preserved for sentence breaking
       expect(
         processor.clean('Items:\n- First\n- Second'),
-        equals('Items: First Second'),
+        equals('Items:\nFirst\nSecond'),
       );
     });
 
@@ -255,6 +258,131 @@ Let me know if you need more info!
     test('should handle whitespace in last sentence', () {
       final sentences = ['Hello.', 'How are you?  '];
       expect(processor.extractLastQuestion(sentences), equals('How are you?'));
+    });
+  });
+
+  group('TextProcessor extractCompleteSentence()', () {
+    test('should extract first sentence from buffer with period', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Hello there. How are you?');
+      expect(sentence, equals('Hello there.'));
+      expect(remainder, equals('How are you?'));
+    });
+
+    test('should extract first sentence from buffer with question mark', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('How are you? I am fine.');
+      expect(sentence, equals('How are you?'));
+      expect(remainder, equals('I am fine.'));
+    });
+
+    test('should extract first sentence from buffer with exclamation', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Hello! Nice to meet you.');
+      expect(sentence, equals('Hello!'));
+      expect(remainder, equals('Nice to meet you.'));
+    });
+
+    test('should return null sentence when no complete sentence', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Hello there');
+      expect(sentence, isNull);
+      expect(remainder, equals('Hello there'));
+    });
+
+    test('should handle abbreviations correctly', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Mr. Smith is here. He said hello.');
+      expect(sentence, equals('Mr. Smith is here.'));
+      expect(remainder, equals('He said hello.'));
+    });
+
+    test('should handle decimal numbers correctly', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('It costs 3.50 dollars. Thank you.');
+      expect(sentence, equals('It costs 3.50 dollars.'));
+      expect(remainder, equals('Thank you.'));
+    });
+
+    test('should return null for empty buffer', () {
+      final (sentence, remainder) = processor.extractCompleteSentence('');
+      expect(sentence, isNull);
+      expect(remainder, equals(''));
+    });
+
+    test('should handle sentence at end of buffer', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Hello there.');
+      expect(sentence, equals('Hello there.'));
+      expect(remainder, equals(''));
+    });
+
+    test('should handle streaming scenario with partial sentence', () {
+      // Simulate streaming: first chunk has no complete sentence
+      var (sentence, remainder) =
+          processor.extractCompleteSentence('Hello th');
+      expect(sentence, isNull);
+      expect(remainder, equals('Hello th'));
+
+      // Second chunk completes the sentence
+      (sentence, remainder) =
+          processor.extractCompleteSentence('Hello there. More text');
+      expect(sentence, equals('Hello there.'));
+      expect(remainder, equals('More text'));
+    });
+
+    test('should clean markdown from extracted sentence', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('**Hello** there. More text.');
+      expect(sentence, equals('Hello there.'));
+      expect(remainder, equals('More text.'));
+    });
+
+    test('should break on newline', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('First line\nSecond line');
+      expect(sentence, equals('First line'));
+      expect(remainder, equals('Second line'));
+    });
+
+    test('should break on semicolon followed by space', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('First clause; second clause');
+      expect(sentence, equals('First clause;'));
+      expect(remainder, equals('second clause'));
+    });
+
+    test('should break on colon followed by space', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Here is the list: item one');
+      expect(sentence, equals('Here is the list:'));
+      expect(remainder, equals('item one'));
+    });
+
+    test('should break on em-dash followed by space', () {
+      final (sentence, remainder) =
+          processor.extractCompleteSentence('Main thought— secondary thought');
+      expect(sentence, equals('Main thought—'));
+      expect(remainder, equals('secondary thought'));
+    });
+
+    test('should break on word limit', () {
+      // Create a sentence longer than 20 words
+      final longText = List.generate(25, (i) => 'word$i').join(' ');
+      final (sentence, remainder) = processor.extractCompleteSentence(longText);
+      expect(sentence, isNotNull);
+      // Should break at around 20 words
+      final wordCount = sentence!.split(' ').length;
+      expect(wordCount, lessThanOrEqualTo(20));
+      expect(remainder, isNotEmpty);
+    });
+
+    test('should prefer natural break over word limit', () {
+      // 15 words then period, should break at period not word limit
+      final text = 'This is a sentence with exactly fifteen words in it now. Then more.';
+      final (sentence, remainder) = processor.extractCompleteSentence(text);
+      expect(sentence, equals('This is a sentence with exactly fifteen words in it now.'));
+      expect(remainder, equals('Then more.'));
     });
   });
 }

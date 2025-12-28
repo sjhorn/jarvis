@@ -175,6 +175,147 @@ void main() {
         expect(vad.currentState, equals(VADState.silence));
       });
     });
+
+    group('follow-up listening scenario', () {
+      // This tests the bug fix: when transitioning from awaitingFollowUp to
+      // listening, we should NOT reset the VAD. The VAD should continue in
+      // speech state and detect silence when the user stops speaking.
+
+      test('should detect silence after speech without reset', () async {
+        // Simulates: user speaks during follow-up, we detect speech,
+        // transition to listening WITHOUT resetting VAD, user stops speaking,
+        // VAD should detect silence.
+        final vad = VoiceActivityDetector(
+          silenceThreshold: 0.01,
+          silenceDuration: const Duration(milliseconds: 100),
+        );
+        final events = <VADEvent>[];
+        final subscription = vad.events.listen(events.add);
+
+        final loudAudio = _generateAudio(amplitude: 0.5, durationMs: 50);
+        final quietAudio = _generateAudio(amplitude: 0.001, durationMs: 50);
+
+        // Phase 1: Speech detected (simulates follow-up detection)
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(events.length, equals(1));
+        expect(events.last.state, equals(VADState.speech));
+        expect(vad.currentState, equals(VADState.speech));
+
+        // Phase 2: Continue speech (simulates transition to listening - NO RESET)
+        // This is key: we do NOT call vad.reset() here
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // Should still be in speech state, no new events
+        expect(events.length, equals(1));
+        expect(vad.currentState, equals(VADState.speech));
+
+        // Phase 3: User stops speaking (silence)
+        for (var i = 0; i < 5; i++) {
+          vad.processAudio(quietAudio);
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+
+        // Should have detected silence
+        expect(events.length, equals(2));
+        expect(events.last.state, equals(VADState.silence));
+        expect(vad.currentState, equals(VADState.silence));
+
+        await subscription.cancel();
+      });
+
+      test('reset during speech breaks silence detection', () async {
+        // This demonstrates the bug: if we reset VAD during speech,
+        // it goes back to silence state and won't detect the speech->silence
+        // transition because it thinks it's already in silence.
+        final vad = VoiceActivityDetector(
+          silenceThreshold: 0.01,
+          silenceDuration: const Duration(milliseconds: 100),
+        );
+        final events = <VADEvent>[];
+        final subscription = vad.events.listen(events.add);
+
+        final loudAudio = _generateAudio(amplitude: 0.5, durationMs: 50);
+        final quietAudio = _generateAudio(amplitude: 0.001, durationMs: 50);
+
+        // Phase 1: Speech detected
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(events.length, equals(1));
+        expect(events.last.state, equals(VADState.speech));
+
+        // Phase 2: RESET (this is the bug - we reset during speech)
+        vad.reset();
+        expect(vad.currentState, equals(VADState.silence));
+
+        // Phase 3: User continues speaking briefly, then stops
+        // But since we reset, VAD is in silence state already
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // This will detect speech again (another transition)
+        expect(events.length, equals(2));
+        expect(events.last.state, equals(VADState.speech));
+
+        // Phase 4: User stops speaking
+        for (var i = 0; i < 5; i++) {
+          vad.processAudio(quietAudio);
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+
+        // Now silence is detected (but we had an extra speech event due to reset)
+        expect(events.length, equals(3));
+        expect(events.last.state, equals(VADState.silence));
+
+        await subscription.cancel();
+      });
+
+      test('should handle rapid speech-silence-speech transitions', () async {
+        // Tests that VAD correctly handles user pausing briefly then continuing
+        final vad = VoiceActivityDetector(
+          silenceThreshold: 0.01,
+          silenceDuration: const Duration(milliseconds: 100),
+        );
+        final events = <VADEvent>[];
+        final subscription = vad.events.listen(events.add);
+
+        final loudAudio = _generateAudio(amplitude: 0.5, durationMs: 50);
+        final quietAudio = _generateAudio(amplitude: 0.001, durationMs: 50);
+
+        // Speech
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(events.last.state, equals(VADState.speech));
+
+        // Brief pause (not long enough for silence detection)
+        vad.processAudio(quietAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        // Resume speaking before silence duration
+        vad.processAudio(loudAudio);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        // Should still only have one speech event (pause was too short)
+        expect(events.length, equals(1));
+        expect(vad.currentState, equals(VADState.speech));
+
+        // Now actually stop speaking for long enough
+        for (var i = 0; i < 5; i++) {
+          vad.processAudio(quietAudio);
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+
+        expect(events.length, equals(2));
+        expect(events.last.state, equals(VADState.silence));
+
+        await subscription.cancel();
+      });
+    });
   });
 }
 

@@ -7,7 +7,7 @@ import 'package:jarvis_dart/src/stt/whisper_process.dart';
 
 /// Replays a recorded session for debugging and verification.
 ///
-/// Usage: dart run tool/replay_session.dart <session_path> [options]
+/// Usage: `dart run tool/replay_session.dart <session_path> [options]`
 ///
 /// Options:
 ///   --transcribe    Re-transcribe audio and compare with recorded
@@ -101,7 +101,7 @@ Future<void> main(List<String> arguments) async {
     // Calculate time delta
     String timeDelta = '';
     if (lastEventTime != null) {
-      final delta = timestamp.difference(lastEventTime!);
+      final delta = timestamp.difference(lastEventTime);
       timeDelta = ' (+${delta.inMilliseconds}ms)';
     }
     lastEventTime = timestamp;
@@ -194,7 +194,7 @@ Future<void> main(List<String> arguments) async {
   print('  Utterances: $utteranceCount');
   print('  Barge-ins: $bargeInCount');
   if (sessionStart != null && lastEventTime != null) {
-    final duration = lastEventTime!.difference(sessionStart!);
+    final duration = lastEventTime.difference(sessionStart);
     print('  Duration: ${duration.inSeconds}s');
   }
   print('-'.padRight(60, '-'));

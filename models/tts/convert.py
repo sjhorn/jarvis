@@ -39,7 +39,7 @@ def generate_tokens(config):
 
 def main():
     # Caution: Please change the filename
-    filename = "jarvis-high.onnx"
+    filename = "jarvis-medium.onnx"
 
     # The rest of the file should not be changed.
     # You only need to change the above filename = "xxx.onxx" in this file

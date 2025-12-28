@@ -56,9 +56,11 @@ class LlamaProcess {
   StreamSubscription<String>? _stderrSubscription;
   final _outputBuffer = StringBuffer();
   Completer<String>? _responseCompleter;
+  StreamController<String>? _tokenStreamController;
   bool _initialized = false;
   bool _disposed = false;
   bool _ready = false;
+  bool _isStreaming = false;
 
   LlamaProcess({
     required this.modelRepo,
@@ -92,6 +94,7 @@ class LlamaProcess {
         modelRepo,
         '-n',
         maxTokens.toString(),
+        '-ngl', '99', // Offload all layers to GPU (Metal on macOS)
         '--conversation',
         '--simple-io', // Required for subprocess compatibility
         '--no-display-prompt',
@@ -146,12 +149,62 @@ class LlamaProcess {
 
     // Check if we've received a complete response (ends with "> " prompt)
     final content = _outputBuffer.toString();
-    if (content.contains('\n> ') || content.endsWith('\n> ')) {
+    final isComplete = content.contains('\n> ') || content.endsWith('\n> ');
+
+    if (_isStreaming && _tokenStreamController != null) {
+      // Streaming mode: emit cleaned tokens incrementally
+      if (!isComplete) {
+        // Emit the new chunk (cleaned)
+        final cleanedChunk = _cleanChunk(data);
+        if (cleanedChunk.isNotEmpty) {
+          _tokenStreamController!.add(cleanedChunk);
+        }
+      } else {
+        // Response complete - emit final chunk and close stream
+        // Extract text before the "> " prompt
+        var endIndex = content.lastIndexOf('\n> ');
+        if (endIndex == -1) endIndex = content.lastIndexOf('\n>');
+        if (endIndex == -1) endIndex = content.length;
+
+        // Find what we haven't emitted yet (the last chunk before prompt)
+        final emittedLength = content.length - data.length;
+        if (endIndex > emittedLength) {
+          final remaining = content.substring(emittedLength, endIndex);
+          final cleanedRemaining = _cleanChunk(remaining);
+          if (cleanedRemaining.isNotEmpty) {
+            _tokenStreamController!.add(cleanedRemaining);
+          }
+        }
+
+        _ready = true;
+        _isStreaming = false;
+        _tokenStreamController!.close();
+        _tokenStreamController = null;
+      }
+    } else if (isComplete) {
+      // Blocking mode: complete the response
       _ready = true;
       if (_responseCompleter != null && !_responseCompleter!.isCompleted) {
         _responseCompleter!.complete(content);
       }
     }
+  }
+
+  /// Cleans a chunk of output for streaming.
+  String _cleanChunk(String chunk) {
+    var result = chunk;
+
+    // Strip "| " prefix (backwards compatibility with some llama versions)
+    if (result.startsWith('| ')) {
+      result = result.substring(2);
+    } else if (result.startsWith('|')) {
+      result = result.substring(1);
+    }
+
+    // Remove control characters (backspace, etc.)
+    result = result.replaceAll(RegExp(r'[\b\x08]'), '');
+
+    return result;
   }
 
   /// Handles stderr data from the process.
@@ -252,6 +305,72 @@ class LlamaProcess {
     }
   }
 
+  /// Streams tokens from the LLM as they are generated.
+  ///
+  /// This is similar to [chat] but returns a stream of tokens instead of
+  /// waiting for the complete response. Useful for pipelining to TTS.
+  ///
+  /// In persistent mode, the process maintains its own conversation history,
+  /// so the [history] parameter is ignored.
+  Stream<String> chatStream(
+    String userMessage,
+    List<ChatMessage> history,
+  ) {
+    if (userMessage.isEmpty) {
+      return Stream.error(LlamaException('User message is empty'));
+    }
+    if (_disposed) {
+      return Stream.error(LlamaException('LlamaProcess has been disposed'));
+    }
+    if (!_initialized || _process == null) {
+      return Stream.error(LlamaException('LlamaProcess not initialized'));
+    }
+    if (!_ready) {
+      return Stream.error(LlamaException('LlamaProcess not ready for input'));
+    }
+
+    _log.fine('Streaming message: $userMessage');
+
+    // Create stream controller
+    _tokenStreamController = StreamController<String>();
+    _outputBuffer.clear();
+    _ready = false;
+    _isStreaming = true;
+
+    // Send the message asynchronously
+    _sendMessage(userMessage);
+
+    return _tokenStreamController!.stream;
+  }
+
+  /// Sends a message to the process.
+  Future<void> _sendMessage(String message) async {
+    try {
+      _process!.stdin.writeln(message);
+      await _process!.stdin.flush();
+    } catch (e) {
+      _ready = true;
+      _isStreaming = false;
+      _tokenStreamController?.addError(LlamaException('Failed to send message', e));
+      _tokenStreamController?.close();
+      _tokenStreamController = null;
+    }
+  }
+
+  /// Cancels an ongoing streaming operation.
+  ///
+  /// Call this when you need to interrupt streaming (e.g., on barge-in).
+  void cancelStream() {
+    if (_isStreaming && _tokenStreamController != null) {
+      _log.fine('Cancelling stream');
+      _isStreaming = false;
+      _tokenStreamController!.close();
+      _tokenStreamController = null;
+      // Note: The process will still complete generating, but we won't emit
+      // any more tokens. The next response prompt will reset state.
+    }
+  }
+
   /// Parses the response from llama-cli output.
   ///
   /// With --simple-io and --no-display-prompt, the format is:
@@ -332,6 +451,11 @@ class LlamaProcess {
   }
 
   Future<void> _cleanup() async {
+    // Close any active stream
+    _isStreaming = false;
+    await _tokenStreamController?.close();
+    _tokenStreamController = null;
+
     // Cancel subscriptions
     await _stdoutSubscription?.cancel();
     await _stderrSubscription?.cancel();

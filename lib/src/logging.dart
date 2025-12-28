@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:logging/logging.dart';
 
 /// Configures logging for the JARVIS application.
@@ -67,8 +65,10 @@ class LogConfig {
         buffer.write(record.stackTrace);
       }
 
-      // Write to stderr to keep stdout clean for user interaction
-      stderr.writeln(buffer.toString());
+      // Use print() for immediate output - it's unbuffered unlike stderr.writeln()
+      // Log format with timestamps distinguishes from user output ([JARVIS], [You], etc.)
+      // ignore: avoid_print
+      print(buffer.toString());
     });
   }
 

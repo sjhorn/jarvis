@@ -2,6 +2,12 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:logging/logging.dart';
+
+import '../logging.dart';
+
+final _log = Logger(Loggers.vad);
+
 /// State of voice activity.
 enum VADState { silence, speech }
 
@@ -43,10 +49,22 @@ class VoiceActivityDetector {
     final energy = _calculateEnergy(audioChunk);
     final isSpeech = energy > silenceThreshold;
 
+    // Log energy periodically (every ~500ms worth of audio at 16kHz)
+    _chunkCount++;
+    if (_chunkCount % 25 == 0) {
+      _log.finest(
+        'VAD energy: ${energy.toStringAsFixed(4)}, '
+        'threshold: $silenceThreshold, '
+        'state: $_currentState, '
+        'isSpeech: $isSpeech',
+      );
+    }
+
     if (isSpeech) {
       _silenceStartTime = null;
 
       if (_currentState != VADState.speech) {
+        _log.fine('VAD: silence -> speech (energy: ${energy.toStringAsFixed(4)})');
         _currentState = VADState.speech;
         _eventController.add(
           VADEvent(state: VADState.speech, timestamp: DateTime.now()),
@@ -60,6 +78,10 @@ class VoiceActivityDetector {
 
         final silenceTime = DateTime.now().difference(_silenceStartTime!);
         if (silenceTime >= silenceDuration) {
+          _log.fine(
+            'VAD: speech -> silence after ${silenceTime.inMilliseconds}ms '
+            '(energy: ${energy.toStringAsFixed(4)})',
+          );
           _currentState = VADState.silence;
           _eventController.add(
             VADEvent(state: VADState.silence, timestamp: DateTime.now()),
@@ -69,6 +91,8 @@ class VoiceActivityDetector {
       }
     }
   }
+
+  int _chunkCount = 0;
 
   /// Calculates the RMS energy of an audio chunk.
   ///
@@ -97,8 +121,10 @@ class VoiceActivityDetector {
 
   /// Resets the detector state to silence.
   void reset() {
+    _log.fine('VAD: reset to silence');
     _currentState = VADState.silence;
     _silenceStartTime = null;
+    _chunkCount = 0;
   }
 
   /// Disposes of resources.

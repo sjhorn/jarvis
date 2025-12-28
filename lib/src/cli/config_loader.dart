@@ -21,6 +21,7 @@ class ConfigException implements Exception {
 class AppConfig {
   final String whisperModelPath;
   final String whisperExecutablePath;
+  final String? whisperServerExecutablePath; // If set, uses server mode (faster)
   final String llamaModelRepo;
   final String llamaExecutablePath;
   final String wakeWordEncoderPath;
@@ -55,6 +56,7 @@ class AppConfig {
   AppConfig({
     required this.whisperModelPath,
     required this.whisperExecutablePath,
+    this.whisperServerExecutablePath,
     required this.llamaModelRepo,
     required this.llamaExecutablePath,
     required this.wakeWordEncoderPath,
@@ -88,6 +90,7 @@ class AppConfig {
     return VoiceAssistantConfig(
       whisperModelPath: whisperModelPath,
       whisperExecutablePath: whisperExecutablePath,
+      whisperServerExecutablePath: whisperServerExecutablePath,
       llamaModelRepo: llamaModelRepo,
       llamaExecutablePath: llamaExecutablePath,
       wakeWordEncoderPath: wakeWordEncoderPath,
@@ -243,6 +246,7 @@ class ConfigLoader {
       return AppConfig(
         whisperModelPath: yaml['whisper_model_path'] as String,
         whisperExecutablePath: yaml['whisper_executable'] as String,
+        whisperServerExecutablePath: yaml['whisper_server_executable'] as String?,
         llamaModelRepo: yaml['llama_model_repo'] as String,
         llamaExecutablePath: yaml['llama_executable'] as String,
         wakeWordEncoderPath: yaml['wakeword_encoder_path'] as String,
