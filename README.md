@@ -50,6 +50,38 @@ vim config.yaml
 dart run bin/jarvis.dart --config config.yaml
 ```
 
+### Option 3: Compiled Binary (Fastest Startup)
+
+Compile JARVIS to a native binary for instant startup (~50ms vs ~500ms for JIT):
+
+```bash
+# Clone the repo
+git clone https://github.com/sjhorn/jarvis.git
+cd jarvis
+dart pub get
+
+# Compile to native binary
+dart compile exe bin/jarvis.dart -o jarvis
+
+# Install to PATH (optional)
+sudo mv jarvis /usr/local/bin/
+# Or for user-only install:
+mkdir -p ~/.local/bin && mv jarvis ~/.local/bin/
+
+# Run first-time setup (downloads models to ~/.jarvis/)
+jarvis setup
+
+# Run JARVIS (uses ~/.jarvis/config.yaml by default)
+jarvis
+```
+
+The compiled binary automatically uses default paths:
+- **Config**: `~/.jarvis/config.yaml`
+- **Models**: `~/.jarvis/models/`
+- **Assets**: `~/.jarvis/assets/`
+
+No `--config` flag needed when using the standard `~/.jarvis/` directory structure.
+
 ### CLI Commands
 
 ```bash
