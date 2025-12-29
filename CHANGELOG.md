@@ -1,3 +1,7 @@
+## 1.0.8
+
+- Fix example file to use correct ConfigLoader API
+
 ## 1.0.7
 
 - Improve pub.dev analysis score (120 → 160 points):
