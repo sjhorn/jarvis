@@ -312,10 +312,7 @@ class LlamaProcess {
   ///
   /// In persistent mode, the process maintains its own conversation history,
   /// so the [history] parameter is ignored.
-  Stream<String> chatStream(
-    String userMessage,
-    List<ChatMessage> history,
-  ) {
+  Stream<String> chatStream(String userMessage, List<ChatMessage> history) {
     if (userMessage.isEmpty) {
       return Stream.error(LlamaException('User message is empty'));
     }
@@ -351,7 +348,9 @@ class LlamaProcess {
     } catch (e) {
       _ready = true;
       _isStreaming = false;
-      _tokenStreamController?.addError(LlamaException('Failed to send message', e));
+      _tokenStreamController?.addError(
+        LlamaException('Failed to send message', e),
+      );
       _tokenStreamController?.close();
       _tokenStreamController = null;
     }

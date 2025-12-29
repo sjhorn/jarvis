@@ -75,16 +75,13 @@ class WhisperServer {
 
     try {
       // Start the server process
-      _serverProcess = await Process.start(
-        serverExecutablePath,
-        [
-          '--model', modelPath,
-          '--host', host,
-          '--port', port.toString(),
-          '--inference-path', '/v1/audio/transcriptions',
-          '--convert', // Auto-convert audio formats
-        ],
-      );
+      _serverProcess = await Process.start(serverExecutablePath, [
+        '--model', modelPath,
+        '--host', host,
+        '--port', port.toString(),
+        '--inference-path', '/v1/audio/transcriptions',
+        '--convert', // Auto-convert audio formats
+      ]);
 
       // Log stderr for debugging
       _serverProcess!.stderr.transform(utf8.decoder).listen((line) {
@@ -152,7 +149,8 @@ class WhisperServer {
     try {
       // Add WAV header to raw PCM data
       final wavData = _addWavHeader(audioData);
-      final audioDurationMs = audioData.length ~/ 32; // 16kHz * 2 bytes = 32 bytes/ms
+      final audioDurationMs =
+          audioData.length ~/ 32; // 16kHz * 2 bytes = 32 bytes/ms
 
       // Send to server using multipart form
       final request = http.MultipartRequest(
@@ -160,11 +158,9 @@ class WhisperServer {
         Uri.parse('$_baseUrl/v1/audio/transcriptions'),
       );
 
-      request.files.add(http.MultipartFile.fromBytes(
-        'file',
-        wavData,
-        filename: 'audio.wav',
-      ));
+      request.files.add(
+        http.MultipartFile.fromBytes('file', wavData, filename: 'audio.wav'),
+      );
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);

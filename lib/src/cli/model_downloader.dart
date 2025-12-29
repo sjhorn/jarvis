@@ -514,7 +514,9 @@ print("Metadata added successfully")
       await tts.initialize();
 
       // Generate acknowledgment phrases
-      _progress('  Generating ${acknowledgmentPhrases.length} acknowledgments...');
+      _progress(
+        '  Generating ${acknowledgmentPhrases.length} acknowledgments...',
+      );
       for (var i = 0; i < acknowledgmentPhrases.length; i++) {
         final phrase = acknowledgmentPhrases[i];
         final filename = 'ack_${i.toString().padLeft(2, '0')}.wav';

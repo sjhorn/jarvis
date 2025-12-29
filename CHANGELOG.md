@@ -1,3 +1,11 @@
+## 1.0.7
+
+- Improve pub.dev analysis score (120 → 160 points):
+  - Fix LICENSE file format for OSI recognition
+  - Add example file for documentation
+  - Update archive dependency to latest (4.0.7)
+  - Fix code formatting and lint issues
+
 ## 1.0.6
 
 - Fix audio buffering during follow-up state (prevents empty transcriptions)

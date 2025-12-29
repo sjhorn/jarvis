@@ -10,6 +10,7 @@ class TextProcessor {
   /// Maximum words before forcing a sentence break.
   /// This prevents long pauses while waiting for a natural break point.
   static const int maxWordsPerChunk = 20;
+
   /// Patterns for markdown that should keep the text content.
   static final _keepTextPatterns = [
     RegExp(r'\*\*\*(.+?)\*\*\*'), // Bold+italic
@@ -83,10 +84,7 @@ class TextProcessor {
     result = result.replaceAll(RegExp(r'\|'), ' ');
 
     // Remove URLs BEFORE symbol replacements (so / doesn't become " slash ")
-    result = result.replaceAll(
-      RegExp(r'https?://[^\s]+'),
-      '',
-    );
+    result = result.replaceAll(RegExp(r'https?://[^\s]+'), '');
 
     // Apply symbol replacements
     _symbolReplacements.forEach((symbol, replacement) {
@@ -238,7 +236,8 @@ class TextProcessor {
         // Look ahead for space or end of text
         final isEndOfText = i == chars.length - 1;
         final hasSpaceAfter =
-            i < chars.length - 1 && (chars[i + 1] == ' ' || chars[i + 1] == '\n');
+            i < chars.length - 1 &&
+            (chars[i + 1] == ' ' || chars[i + 1] == '\n');
 
         if (isEndOfText || hasSpaceAfter) {
           // Get text up to and including this punctuation
@@ -251,7 +250,8 @@ class TextProcessor {
           );
 
           // Check if it's a decimal number (e.g., "3.14")
-          final isDecimal = char == '.' &&
+          final isDecimal =
+              char == '.' &&
               i > 0 &&
               i < chars.length - 1 &&
               RegExp(r'\d').hasMatch(chars[i - 1]) &&

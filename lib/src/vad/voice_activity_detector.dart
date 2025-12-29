@@ -64,7 +64,9 @@ class VoiceActivityDetector {
       _silenceStartTime = null;
 
       if (_currentState != VADState.speech) {
-        _log.fine('VAD: silence -> speech (energy: ${energy.toStringAsFixed(4)})');
+        _log.fine(
+          'VAD: silence -> speech (energy: ${energy.toStringAsFixed(4)})',
+        );
         _currentState = VADState.speech;
         _eventController.add(
           VADEvent(state: VADState.speech, timestamp: DateTime.now()),

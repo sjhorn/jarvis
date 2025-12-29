@@ -114,14 +114,28 @@ class AcknowledgmentPlayer {
 
     while (offset < bytes.length - 8) {
       final chunkId = String.fromCharCodes(bytes.sublist(offset, offset + 4));
-      final chunkSize = bytes.buffer.asByteData().getUint32(offset + 4, Endian.little);
+      final chunkSize = bytes.buffer.asByteData().getUint32(
+        offset + 4,
+        Endian.little,
+      );
 
       if (chunkId == 'fmt ') {
-        numChannels = bytes.buffer.asByteData().getUint16(offset + 10, Endian.little);
-        sampleRate = bytes.buffer.asByteData().getUint32(offset + 12, Endian.little);
-        bitsPerSample = bytes.buffer.asByteData().getUint16(offset + 22, Endian.little);
+        numChannels = bytes.buffer.asByteData().getUint16(
+          offset + 10,
+          Endian.little,
+        );
+        sampleRate = bytes.buffer.asByteData().getUint32(
+          offset + 12,
+          Endian.little,
+        );
+        bitsPerSample = bytes.buffer.asByteData().getUint16(
+          offset + 22,
+          Endian.little,
+        );
       } else if (chunkId == 'data') {
-        if (sampleRate == null || bitsPerSample == null || numChannels == null) {
+        if (sampleRate == null ||
+            bitsPerSample == null ||
+            numChannels == null) {
           return null;
         }
 

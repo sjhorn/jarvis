@@ -19,33 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Third-Party Software
-
-This project incorporates or depends on the following third-party software:
-
-### whisper.cpp
-- License: MIT
-- Copyright (c) 2023 Georgi Gerganov
-- https://github.com/ggerganov/whisper.cpp
-
-### llama.cpp
-- License: MIT
-- Copyright (c) 2023 Georgi Gerganov
-- https://github.com/ggerganov/llama.cpp
-
-### sherpa_onnx
-- License: Apache-2.0
-- Copyright (c) 2023 The Next-gen Kaldi Authors
-- https://github.com/k2-fsa/sherpa-onnx
-
-### Dart Packages (via pub.dev)
-- path: BSD-3-Clause (Dart Authors)
-- async: BSD-3-Clause (Dart Authors)
-- yaml: MIT
-- logging: BSD-3-Clause (Dart Authors)
-- mocktail: MIT (Felix Angelov)
-- test: BSD-3-Clause (Dart Authors)
-- lints: BSD-3-Clause (Dart Authors)

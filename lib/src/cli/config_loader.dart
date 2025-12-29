@@ -21,7 +21,8 @@ class ConfigException implements Exception {
 class AppConfig {
   final String whisperModelPath;
   final String whisperExecutablePath;
-  final String? whisperServerExecutablePath; // If set, uses server mode (faster)
+  final String?
+  whisperServerExecutablePath; // If set, uses server mode (faster)
   final String llamaModelRepo;
   final String llamaExecutablePath;
   final String wakeWordEncoderPath;
@@ -46,8 +47,8 @@ class AppConfig {
   final String? bargeInDir;
 
   // Audio playback
-  final AudioPlayer? audioPlayer;  // null = auto-detect
-  final String? audioPlayerPath;   // custom executable path
+  final AudioPlayer? audioPlayer; // null = auto-detect
+  final String? audioPlayerPath; // custom executable path
 
   // Session recording
   final bool recordingEnabled;
@@ -207,7 +208,10 @@ class ConfigLoader {
         milliseconds: _parseInt(environment['FOLLOW_UP_TIMEOUT_MS'], 4000),
       ),
       statementFollowUpTimeout: Duration(
-        milliseconds: _parseInt(environment['STATEMENT_FOLLOW_UP_TIMEOUT_MS'], 4000),
+        milliseconds: _parseInt(
+          environment['STATEMENT_FOLLOW_UP_TIMEOUT_MS'],
+          4000,
+        ),
       ),
       enableBargeIn: _parseBool(environment['ENABLE_BARGE_IN'], true),
       bargeInDir: environment['BARGE_IN_DIR'],
@@ -246,7 +250,8 @@ class ConfigLoader {
       return AppConfig(
         whisperModelPath: yaml['whisper_model_path'] as String,
         whisperExecutablePath: yaml['whisper_executable'] as String,
-        whisperServerExecutablePath: yaml['whisper_server_executable'] as String?,
+        whisperServerExecutablePath:
+            yaml['whisper_server_executable'] as String?,
         llamaModelRepo: yaml['llama_model_repo'] as String,
         llamaExecutablePath: yaml['llama_executable'] as String,
         wakeWordEncoderPath: yaml['wakeword_encoder_path'] as String,
@@ -273,7 +278,10 @@ class ConfigLoader {
           milliseconds: _parseYamlInt(yaml['follow_up_timeout_ms'], 4000),
         ),
         statementFollowUpTimeout: Duration(
-          milliseconds: _parseYamlInt(yaml['statement_follow_up_timeout_ms'], 4000),
+          milliseconds: _parseYamlInt(
+            yaml['statement_follow_up_timeout_ms'],
+            4000,
+          ),
         ),
         enableBargeIn: _parseYamlBool(yaml['enable_barge_in'], true),
         bargeInDir: yaml['barge_in_dir'] as String?,
@@ -328,7 +336,7 @@ class ConfigLoader {
   /// Returns null for auto-detection if value is null, empty, or "auto".
   static AudioPlayer? _parseAudioPlayer(String? value) {
     if (value == null || value.isEmpty || value.toLowerCase() == 'auto') {
-      return null;  // Auto-detect
+      return null; // Auto-detect
     }
     switch (value.toLowerCase()) {
       case 'afplay':

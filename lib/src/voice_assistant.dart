@@ -278,7 +278,9 @@ class VoiceAssistant {
 
       // Initialize Whisper (use server mode if available for faster transcription)
       if (config.whisperServerExecutablePath != null) {
-        _log.fine('Initializing Whisper Server (model: ${config.whisperModelPath})...');
+        _log.fine(
+          'Initializing Whisper Server (model: ${config.whisperModelPath})...',
+        );
         _whisperServer = WhisperServer(
           modelPath: config.whisperModelPath,
           serverExecutablePath: config.whisperServerExecutablePath!,
@@ -286,7 +288,9 @@ class VoiceAssistant {
         await _whisperServer!.initialize();
         _log.fine('Whisper Server initialized (model stays loaded)');
       } else {
-        _log.fine('Initializing Whisper Process (model: ${config.whisperModelPath})...');
+        _log.fine(
+          'Initializing Whisper Process (model: ${config.whisperModelPath})...',
+        );
         _whisperProcess = WhisperProcess(
           modelPath: config.whisperModelPath,
           executablePath: config.whisperExecutablePath,
@@ -543,7 +547,9 @@ class VoiceAssistant {
 
     if (event.state == VADState.silence) {
       // User stopped speaking, process the audio
-      _log.info('VAD silence detected, processing speech (buffer: ${_audioBuffer.length} bytes)');
+      _log.info(
+        'VAD silence detected, processing speech (buffer: ${_audioBuffer.length} bytes)',
+      );
       await _processUserSpeech();
     }
   }
@@ -667,8 +673,11 @@ class VoiceAssistant {
     try {
       // Transcribe audio
       final audioData = Uint8List.fromList(_audioBuffer);
-      final audioDurationMs = audioData.length ~/ 32; // 16kHz * 2 bytes = 32 bytes/ms
-      _log.info('Processing ${audioData.length} bytes of audio (~${audioDurationMs}ms)');
+      final audioDurationMs =
+          audioData.length ~/ 32; // 16kHz * 2 bytes = 32 bytes/ms
+      _log.info(
+        'Processing ${audioData.length} bytes of audio (~${audioDurationMs}ms)',
+      );
       _audioBuffer.clear();
 
       // Record user audio
@@ -686,7 +695,9 @@ class VoiceAssistant {
       _log.info('[TIMING] Transcription: ${transcribeMs}ms');
 
       if (transcription.isEmpty) {
-        _log.info('Transcription empty (audio buffer was ${audioData.length} bytes), returning to wake word detection');
+        _log.info(
+          'Transcription empty (audio buffer was ${audioData.length} bytes), returning to wake word detection',
+        );
         _setState(AssistantState.listeningForWakeWord);
         return;
       }
@@ -735,8 +746,9 @@ class VoiceAssistant {
           await for (final token in tokenStream) {
             // Log time-to-first-token
             if (!firstTokenLogged) {
-              final ttftMs =
-                  DateTime.now().difference(processingStart).inMilliseconds;
+              final ttftMs = DateTime.now()
+                  .difference(processingStart)
+                  .inMilliseconds;
               _log.info('[TIMING] Time-to-first-token: ${ttftMs}ms');
               firstTokenLogged = true;
             }
@@ -753,8 +765,8 @@ class VoiceAssistant {
 
             // Try to extract complete sentences
             while (true) {
-              final (sentence, remainder) =
-                  _textProcessor.extractCompleteSentence(tokenBuffer);
+              final (sentence, remainder) = _textProcessor
+                  .extractCompleteSentence(tokenBuffer);
               if (sentence == null) break;
 
               tokenBuffer = remainder;
@@ -814,8 +826,9 @@ class VoiceAssistant {
 
         // Log time-to-first-audio on first sentence
         if (!firstAudioLogged) {
-          final ttfaMs =
-              DateTime.now().difference(processingStart).inMilliseconds;
+          final ttfaMs = DateTime.now()
+              .difference(processingStart)
+              .inMilliseconds;
           _log.info('[TIMING] Time-to-first-audio: ${ttfaMs}ms');
           firstAudioLogged = true;
         }
@@ -830,10 +843,7 @@ class VoiceAssistant {
         );
 
         final playbackStart = speakingStopwatch.elapsedMilliseconds;
-        await _audioOutput!.play(
-          pcmAudio,
-          audioSampleRate: result.sampleRate,
-        );
+        await _audioOutput!.play(pcmAudio, audioSampleRate: result.sampleRate);
         final playbackMs =
             speakingStopwatch.elapsedMilliseconds - playbackStart;
         totalPlaybackMs += playbackMs;
@@ -842,8 +852,8 @@ class VoiceAssistant {
         playbackIndex++;
 
         // Add pause between sentences (only if more sentences coming)
-        final moreSentences = playbackIndex < synthesisQueue.length ||
-            !tokensDone.isCompleted;
+        final moreSentences =
+            playbackIndex < synthesisQueue.length || !tokensDone.isCompleted;
         if (moreSentences && config.sentencePause.inMilliseconds > 0) {
           final pauseStart = speakingStopwatch.elapsedMilliseconds;
           await Future<void>.delayed(config.sentencePause);

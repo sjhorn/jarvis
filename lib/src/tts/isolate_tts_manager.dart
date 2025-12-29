@@ -86,10 +86,7 @@ class IsolateTtsManager {
     final receivePort = ReceivePort();
 
     // Spawn the isolate
-    _isolate = await Isolate.spawn(
-      _ttsIsolateEntry,
-      receivePort.sendPort,
-    );
+    _isolate = await Isolate.spawn(_ttsIsolateEntry, receivePort.sendPort);
 
     // Wait for the isolate's SendPort
     _sendPort = await receivePort.first as SendPort;
@@ -99,18 +96,20 @@ class IsolateTtsManager {
     final initCompleter = Completer<int>();
     final initReceivePort = ReceivePort();
 
-    _sendPort!.send(_TtsRequest(
-      _TtsMessageType.init,
-      initReceivePort.sendPort,
-      _TtsConfig(
-        modelPath: modelPath,
-        tokensPath: tokensPath,
-        dataDir: dataDir,
-        speed: speed,
-        speakerId: speakerId,
-        nativeLibPath: nativeLibPath,
+    _sendPort!.send(
+      _TtsRequest(
+        _TtsMessageType.init,
+        initReceivePort.sendPort,
+        _TtsConfig(
+          modelPath: modelPath,
+          tokensPath: tokensPath,
+          dataDir: dataDir,
+          speed: speed,
+          speakerId: speakerId,
+          nativeLibPath: nativeLibPath,
+        ),
       ),
-    ));
+    );
 
     initReceivePort.listen((message) {
       if (message is int) {
@@ -143,18 +142,18 @@ class IsolateTtsManager {
     final completer = Completer<TtsResult>();
     final receivePort = ReceivePort();
 
-    _sendPort!.send(_TtsRequest(
-      _TtsMessageType.synthesize,
-      receivePort.sendPort,
-      text,
-    ));
+    _sendPort!.send(
+      _TtsRequest(_TtsMessageType.synthesize, receivePort.sendPort, text),
+    );
 
     receivePort.listen((message) {
       if (message is Map<String, dynamic>) {
-        completer.complete(TtsResult(
-          samples: message['samples'] as Float32List,
-          sampleRate: message['sampleRate'] as int,
-        ));
+        completer.complete(
+          TtsResult(
+            samples: message['samples'] as Float32List,
+            sampleRate: message['sampleRate'] as int,
+          ),
+        );
       } else if (message is String) {
         completer.completeError(TtsException(message));
       }
@@ -171,10 +170,9 @@ class IsolateTtsManager {
 
     if (_sendPort != null) {
       final receivePort = ReceivePort();
-      _sendPort!.send(_TtsRequest(
-        _TtsMessageType.dispose,
-        receivePort.sendPort,
-      ));
+      _sendPort!.send(
+        _TtsRequest(_TtsMessageType.dispose, receivePort.sendPort),
+      );
 
       // Wait briefly for cleanup, then kill
       await receivePort.first.timeout(

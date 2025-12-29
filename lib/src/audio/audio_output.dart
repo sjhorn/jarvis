@@ -10,11 +10,11 @@ final _log = Logger(Loggers.audioOutput);
 
 /// Supported audio players.
 enum AudioPlayer {
-  afplay,  // macOS (built-in)
-  play,    // sox (cross-platform)
-  mpv,     // mpv (cross-platform)
-  ffplay,  // ffmpeg (cross-platform)
-  aplay,   // ALSA (Linux)
+  afplay, // macOS (built-in)
+  play, // sox (cross-platform)
+  mpv, // mpv (cross-platform)
+  ffplay, // ffmpeg (cross-platform)
+  aplay, // ALSA (Linux)
 }
 
 /// Exception thrown by AudioOutput operations.
@@ -72,9 +72,19 @@ class AudioOutput {
     // Platform-preferred order
     final List<AudioPlayer> candidates;
     if (Platform.isMacOS) {
-      candidates = [AudioPlayer.afplay, AudioPlayer.play, AudioPlayer.mpv, AudioPlayer.ffplay];
+      candidates = [
+        AudioPlayer.afplay,
+        AudioPlayer.play,
+        AudioPlayer.mpv,
+        AudioPlayer.ffplay,
+      ];
     } else if (Platform.isLinux) {
-      candidates = [AudioPlayer.play, AudioPlayer.aplay, AudioPlayer.mpv, AudioPlayer.ffplay];
+      candidates = [
+        AudioPlayer.play,
+        AudioPlayer.aplay,
+        AudioPlayer.mpv,
+        AudioPlayer.ffplay,
+      ];
     } else if (Platform.isWindows) {
       candidates = [AudioPlayer.ffplay, AudioPlayer.mpv, AudioPlayer.play];
     } else {
@@ -95,10 +105,9 @@ class AudioOutput {
   /// Checks if an executable is available in PATH or as absolute path.
   static Future<bool> _isExecutableAvailable(String executable) async {
     try {
-      final result = await Process.run(
-        Platform.isWindows ? 'where' : 'which',
-        [executable],
-      );
+      final result = await Process.run(Platform.isWindows ? 'where' : 'which', [
+        executable,
+      ]);
       return result.exitCode == 0;
     } catch (_) {
       // Try as absolute path
@@ -128,13 +137,13 @@ class AudioOutput {
       case AudioPlayer.afplay:
         return [filePath];
       case AudioPlayer.play:
-        return ['-q', filePath];  // -q for quiet (no progress)
+        return ['-q', filePath]; // -q for quiet (no progress)
       case AudioPlayer.mpv:
         return ['--no-video', '--really-quiet', filePath];
       case AudioPlayer.ffplay:
         return ['-nodisp', '-autoexit', '-loglevel', 'quiet', filePath];
       case AudioPlayer.aplay:
-        return ['-q', filePath];  // -q for quiet
+        return ['-q', filePath]; // -q for quiet
     }
   }
 
@@ -238,7 +247,12 @@ class AudioOutput {
   }
 
   /// Converts raw PCM data to WAV format by adding header.
-  Uint8List _pcmToWav(Uint8List pcmData, int sampleRate, int channels, int bitsPerSample) {
+  Uint8List _pcmToWav(
+    Uint8List pcmData,
+    int sampleRate,
+    int channels,
+    int bitsPerSample,
+  ) {
     final byteRate = sampleRate * channels * (bitsPerSample ~/ 8);
     final blockAlign = channels * (bitsPerSample ~/ 8);
     final dataSize = pcmData.length;

@@ -128,9 +128,17 @@ Future<void> runSetup(List<String> args) async {
     final whisperServer = await _detectWhisperServer();
     final llamaCli = await _detectLlamaCli();
 
-    if (whisperCli != null) print('  Found whisper-cli: $whisperCli');
-    if (whisperServer != null) print('  Found whisper-server: $whisperServer (faster, keeps model warm)');
-    if (llamaCli != null) print('  Found llama-cli: $llamaCli');
+    if (whisperCli != null) {
+      print('  Found whisper-cli: $whisperCli');
+    }
+    if (whisperServer != null) {
+      print(
+        '  Found whisper-server: $whisperServer (faster, keeps model warm)',
+      );
+    }
+    if (llamaCli != null) {
+      print('  Found llama-cli: $llamaCli');
+    }
 
     final configContent =
         '''
