@@ -1,3 +1,7 @@
+# Exclude compiled binaries
+jarvis
+*.exe
+
 # Exclude large model files from publishing
 models/
 
